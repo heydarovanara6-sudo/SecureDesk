@@ -17,7 +17,8 @@ def register_socket_events(socketio):
             connected_users[request.sid] = {
                 "name": data["name"],
                 "email": data["email"],
-                "department": data["department"]
+                "department": data["department"],
+                "role": data.get("role", "employee")
             }
             emit('user_connected', {
                 "name": data["name"],
@@ -53,8 +54,18 @@ def register_socket_events(socketio):
         user = connected_users.get(request.sid)
         if not user:
             return
+
+        content = data.get("content", "")
+
+        # Server-side profanity check placeholder
+        # Content is AES-256 encrypted so actual text check happens on frontend
+        # Backend logs metadata only
+
+        import uuid
+        msg_id = str(uuid.uuid4())
         message = {
-            "content": data.get("content"),
+            "_id": msg_id,
+            "content": content,
             "channel": data.get("channel"),
             "priority": data.get("priority", "normal"),
             "sender_name": user["name"],
@@ -62,7 +73,6 @@ def register_socket_events(socketio):
             "department": user["department"],
             "timestamp": data.get("timestamp")
         }
-        # Broadcast to everyone in the channel room
         emit('new_message', message, room=data.get("channel"))
 
     @socketio.on('typing')
@@ -80,9 +90,143 @@ def register_socket_events(socketio):
         user = connected_users.get(request.sid)
         if not user:
             return
+        # Only admin and super_admin can send emergency broadcasts
+        role = user.get("role", "employee")
+        if role not in ["admin", "super_admin"]:
+            emit('error', {"message": "Not authorized to send emergency broadcasts"})
+            return
         print(f"🚨 EMERGENCY BROADCAST from {user['name']}: {data.get('message')}")
         emit('emergency_alert', {
             "message": data.get("message"),
             "sender": user["name"],
             "department": user["department"]
         }, broadcast=True)
+
+    @socketio.on('file_upload_complete')
+    def handle_file_upload(data):
+        user = connected_users.get(request.sid)
+        if not user:
+            return
+        message = {
+            "content": data.get("content"),
+            "channel": data.get("channel"),
+            "priority": "normal",
+            "sender_name": user["name"],
+            "sender_email": user["email"],
+            "department": user["department"],
+            "timestamp": data.get("timestamp"),
+            "file": {
+                "name": data.get("fileName"),
+                "type": data.get("fileType"),
+                "size": data.get("fileSize"),
+                "url": data.get("fileUrl")
+            }
+        }
+        emit('new_message', message, room=data.get("channel"))
+    # ─── MUSTER ROLL CALL ───────────────────────────────────────────
+    active_muster = {}  # holds current roll call state
+
+    @socketio.on('start_muster')
+    def handle_start_muster(data):
+        user = connected_users.get(request.sid)
+        if not user:
+            return
+        role = user.get('role', 'employee')
+        if role not in ['admin', 'super_admin']:
+            emit('error', {'message': 'Only admins can start a muster roll call'})
+            return
+
+        from datetime import datetime
+        all_names = [u['name'] for u in connected_users.values()]
+
+        active_muster.clear()
+        active_muster.update({
+            'initiated_by': user['name'],
+            'started_at': datetime.utcnow().isoformat(),
+            'total': len(all_names),
+            'all_users': all_names,
+            'safe': [],
+            'injured': [],
+        })
+
+        not_responded = [n for n in all_names
+                         if n not in active_muster['safe']
+                         and n not in active_muster['injured']]
+        payload = {**active_muster, 'not_responded': not_responded}
+        emit('muster_started', payload, broadcast=True)
+        print(f"🧑‍🤝‍🧑 Muster roll call started by {user['name']} — {len(all_names)} users online")
+
+    @socketio.on('muster_checkin')
+    def handle_muster_checkin(data):
+        user = connected_users.get(request.sid)
+        if not user or not active_muster:
+            return
+
+        name = user['name']
+        status = data.get('status', 'safe')
+
+        # Remove from both lists first (prevent duplicates)
+        if name in active_muster['safe']:
+            active_muster['safe'].remove(name)
+        if name in active_muster['injured']:
+            active_muster['injured'].remove(name)
+
+        if status == 'safe':
+            active_muster['safe'].append(name)
+        else:
+            active_muster['injured'].append(name)
+
+        not_responded = [n for n in active_muster['all_users']
+                         if n not in active_muster['safe']
+                         and n not in active_muster['injured']]
+
+        payload = {**active_muster, 'not_responded': not_responded}
+        emit('muster_updated', payload, broadcast=True)
+        print(f"✅ Muster checkin: {name} — {status}")
+
+    @socketio.on('end_muster')
+    def handle_end_muster(data):
+        user = connected_users.get(request.sid)
+        if not user:
+            return
+        role = user.get('role', 'employee')
+        if role not in ['admin', 'super_admin']:
+            return
+        active_muster.clear()
+        emit('muster_ended', {}, broadcast=True)
+        print(f"🛑 Muster roll call ended by {user['name']}")
+
+    # ─── READ RECEIPTS ───────────────────────────────────────────────
+    message_receipts = {}  # { msg_id: [ {name, email, time} ] }
+
+    @socketio.on('mark_seen')
+    def handle_mark_seen(data):
+        user = connected_users.get(request.sid)
+        if not user:
+            return
+
+        msg_id = data.get('msg_id')
+        if not msg_id:
+            return
+
+        from datetime import datetime
+        if msg_id not in message_receipts:
+            message_receipts[msg_id] = []
+
+        # Avoid duplicate receipts
+        already = any(r['email'] == user['email'] for r in message_receipts[msg_id])
+        if not already:
+            receipt = {
+                'name': user['name'],
+                'email': user['email'],
+                'time': datetime.utcnow().strftime('%H:%M')
+            }
+            message_receipts[msg_id].append(receipt)
+
+            # Broadcast to everyone so senders see live receipt updates
+            emit('message_seen', {
+                'msg_id': msg_id,
+                'reader_name': user['name'],
+                'reader_email': user['email'],
+                'time': receipt['time']
+            }, broadcast=True)

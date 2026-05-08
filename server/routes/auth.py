@@ -1,3 +1,4 @@
+import certifi
 from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
 import bcrypt
@@ -5,10 +6,11 @@ import jwt
 from datetime import datetime, timedelta
 from config import MONGO_URI, JWT_SECRET
 from models.user import create_user
+from middleware.auth_middleware import token_required
 
 auth_bp = Blueprint("auth", __name__)
 
-client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
+client = MongoClient(MONGO_URI, tls=True, tlsCAFile=certifi.where(), tlsAllowInvalidCertificates=True)
 db = client["securedesk"]
 users_collection = db["users"]
 
@@ -74,3 +76,13 @@ def login():
             "department": user["department"]
         }
     }), 200
+
+@auth_bp.route("/users", methods=["GET"])
+@token_required
+def get_users():
+    from middleware.auth_middleware import token_required
+    users = list(users_collection.find(
+        {"is_active": True},
+        {"_id": 0, "name": 1, "email": 1, "department": 1}
+    ))
+    return jsonify(users), 200

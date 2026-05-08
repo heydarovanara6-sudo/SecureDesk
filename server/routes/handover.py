@@ -1,8 +1,8 @@
 import certifi
 from flask import Blueprint, request, jsonify
 from pymongo import MongoClient
-from config import MONGO_URI
-from middleware.auth_middleware import token_required
+from config import MONGO_URI 
+from middleware.auth_middleware import token_required 
 from datetime import datetime
 
 handover_bp = Blueprint("handover", __name__)

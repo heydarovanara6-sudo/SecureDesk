@@ -3,11 +3,17 @@ import axios from 'axios';
 import { io } from 'socket.io-client';
 import CryptoJS from 'crypto-js';
 import ShiftHandover from './ShiftHandover';
+import LanguageSelector from './LanguageSelector';
+import { useLanguage } from '../LanguageContext';
+import ChannelAccess from './ChannelAccess';
+import UserList from './UserList';
+import AdminPanel from './AdminPanel';
 
 const SECRET_KEY = 'bp-securedesk-aes-key-2025';
 let socket = null;
 
 function Chat({ user, onLogout }) {
+  const { t } = useLanguage();
   const [channels, setChannels] = useState([]);
   const [activeChannel, setActiveChannel] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -19,36 +25,44 @@ function Chat({ user, onLogout }) {
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
   const [emergencyMessage, setEmergencyMessage] = useState('');
+  const [accessChannel, setAccessChannel] = useState(null);
+  const [unlockedChannels, setUnlockedChannels] = useState(['general']);
+  const [showUserList, setShowUserList] = useState(false);
+  const [dmChannels, setDmChannels] = useState([]);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [wordWarning, setWordWarning] = useState('');
   const messagesEndRef = useRef(null);
   const token = localStorage.getItem('token');
 
+  // Inappropriate word filter
+  const bannedWords = [
+    'idiot', 'stupid', 'moron', 'dumb', 'hate',
+    'axmaq', 'sürün', 'ahmaq',
+    'дурак', 'идиот', 'тупой', 'блять', 'чёрт'
+  ];
+
+  const containsBannedWord = (text) => {
+    const lower = text.toLowerCase();
+    return bannedWords.some(word => lower.includes(word));
+  };
+
   useEffect(() => {
     socket = io('http://127.0.0.1:5000', { query: { token } });
-
     socket.on('new_message', (msg) => {
       const decrypted = { ...msg, content: decryptMessage(msg.content) };
       setMessages(prev => [...prev, decrypted]);
     });
-
     socket.on('user_typing', (data) => {
       setTypingUser(`${data.name} is typing...`);
       setTimeout(() => setTypingUser(''), 2000);
     });
-
-    socket.on('user_connected', (data) => {
-      setOnlineUsers(data.online_users);
-    });
-
-    socket.on('user_disconnected', (data) => {
-      setOnlineUsers(data.online_users);
-    });
-
+    socket.on('user_connected', (data) => setOnlineUsers(data.online_users));
+    socket.on('user_disconnected', (data) => setOnlineUsers(data.online_users));
     socket.on('emergency_alert', (data) => {
       setEmergency(data);
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA==');
       audio.play().catch(() => {});
     });
-
     return () => { if (socket) socket.disconnect(); };
   }, []);
 
@@ -70,7 +84,6 @@ function Chat({ user, onLogout }) {
   useEffect(() => {
     if (!activeChannel) return;
     if (socket) socket.emit('join_channel', { channel: activeChannel.name });
-
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
@@ -78,8 +91,7 @@ function Chat({ user, onLogout }) {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const decrypted = res.data.map(msg => ({
-          ...msg,
-          content: decryptMessage(msg.content)
+          ...msg, content: decryptMessage(msg.content)
         }));
         setMessages(decrypted);
       } catch (err) {
@@ -107,9 +119,15 @@ function Chat({ user, onLogout }) {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
+    // Word filter check
+    if (containsBannedWord(newMessage)) {
+      setWordWarning('⚠️ Your message contains inappropriate content and cannot be sent.');
+      setTimeout(() => setWordWarning(''), 3000);
+      return;
+    }
+
     const encrypted = encryptMessage(newMessage);
     const timestamp = new Date().toISOString();
-
     if (socket) {
       socket.emit('send_message', {
         content: encrypted,
@@ -118,7 +136,6 @@ function Chat({ user, onLogout }) {
         timestamp
       });
     }
-
     try {
       await axios.post('http://127.0.0.1:5000/api/messages', {
         content: encrypted,
@@ -128,9 +145,9 @@ function Chat({ user, onLogout }) {
     } catch (err) {
       console.error('Failed to save message');
     }
-
     setNewMessage('');
     setPriority('normal');
+    setWordWarning('');
   };
 
   const handleTyping = () => {
@@ -147,6 +164,24 @@ function Chat({ user, onLogout }) {
     }
   };
 
+  const startDM = (targetUser) => {
+    const dmName = `dm-${[user.email, targetUser.email].sort().join('-')}`;
+    const dmChannel = {
+      name: dmName,
+      description: `DM with ${targetUser.name}`,
+      icon: '💬',
+      type: 'dm',
+      displayName: targetUser.name
+    };
+    setDmChannels(prev => {
+      if (prev.find(c => c.name === dmName)) return prev;
+      return [...prev, dmChannel];
+    });
+    setActiveChannel(dmChannel);
+    setUnlockedChannels(prev => [...prev, dmName]);
+    setShowUserList(false);
+  };
+
   const getPriorityStyle = (p) => {
     switch(p) {
       case 'urgent': return 'border-l-4 border-red-500 bg-red-900 bg-opacity-10';
@@ -158,9 +193,9 @@ function Chat({ user, onLogout }) {
 
   const getPriorityBadge = (p) => {
     switch(p) {
-      case 'urgent': return <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full ml-2">🔴 URGENT</span>;
-      case 'important': return <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded-full ml-2">🟡 IMPORTANT</span>;
-      case 'confidential': return <span className="text-xs bg-gray-600 text-white px-2 py-0.5 rounded-full ml-2">⚫ CONFIDENTIAL</span>;
+      case 'urgent': return <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full ml-2">🔴 {t.urgent}</span>;
+      case 'important': return <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded-full ml-2">🟡 {t.important}</span>;
+      case 'confidential': return <span className="text-xs bg-gray-600 text-white px-2 py-0.5 rounded-full ml-2">⚫ {t.confidential}</span>;
       default: return null;
     }
   };
@@ -176,19 +211,19 @@ function Chat({ user, onLogout }) {
   return (
     <div className="flex h-screen bg-bp-dark">
 
-      {/* EMERGENCY ALERT OVERLAY */}
+      {/* EMERGENCY ALERT */}
       {emergency && (
         <div className="fixed inset-0 bg-red-900 bg-opacity-95 z-50 flex items-center justify-center">
           <div className="text-center text-white p-8 max-w-lg">
             <div className="text-8xl mb-6 animate-bounce">🚨</div>
-            <h1 className="text-4xl font-bold mb-4">EMERGENCY ALERT</h1>
+            <h1 className="text-4xl font-bold mb-4">{t.emergencyTitle}</h1>
             <p className="text-xl mb-4 bg-red-800 p-4 rounded-lg">{emergency.message}</p>
             <p className="text-red-300 mb-8">Sent by: {emergency.sender} — {emergency.department}</p>
             <button
               onClick={() => setEmergency(null)}
               className="bg-white text-red-900 font-bold px-8 py-3 rounded-lg text-lg hover:bg-red-100"
             >
-              ACKNOWLEDGE
+              {t.acknowledge}
             </button>
           </div>
         </div>
@@ -198,14 +233,12 @@ function Chat({ user, onLogout }) {
       {showEmergencyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-70 z-40 flex items-center justify-center">
           <div className="bg-bp-gray rounded-xl p-6 w-96">
-            <h3 className="text-white font-bold text-lg mb-4">🚨 Send Emergency Broadcast</h3>
-            <p className="text-gray-400 text-sm mb-4">
-              This will send a full-screen alert to ALL connected employees immediately.
-            </p>
+            <h3 className="text-white font-bold text-lg mb-4">🚨 {t.sendEmergency}</h3>
+            <p className="text-gray-400 text-sm mb-4">{t.emergencyWarning}</p>
             <textarea
               value={emergencyMessage}
               onChange={(e) => setEmergencyMessage(e.target.value)}
-              placeholder="Describe the emergency..."
+              placeholder={t.emergencyPlaceholder}
               className="w-full bg-bp-dark border border-red-500 text-white rounded-lg px-4 py-3 mb-4 h-24 resize-none focus:outline-none"
             />
             <div className="flex gap-3">
@@ -213,13 +246,13 @@ function Chat({ user, onLogout }) {
                 onClick={() => setShowEmergencyModal(false)}
                 className="flex-1 bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600"
               >
-                Cancel
+                {t.cancel}
               </button>
               <button
                 onClick={sendEmergency}
                 className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 font-bold"
               >
-                SEND ALERT
+                {t.sendAlert}
               </button>
             </div>
           </div>
@@ -234,7 +267,7 @@ function Chat({ user, onLogout }) {
           <div className="flex items-center gap-3">
             <img src="/bplogo.png" alt="BP" className="w-8 h-8 object-contain" />
             <div>
-              <h1 className="text-white font-bold text-sm">SecureDesk</h1>
+              <h1 className="text-white font-bold text-sm">{t.appName}</h1>
               <p className="text-gray-400 text-xs">BP Azerbaijan</p>
             </div>
           </div>
@@ -243,50 +276,99 @@ function Chat({ user, onLogout }) {
         {/* Security Status */}
         <div className="px-4 py-2 bg-green-900 bg-opacity-30 border-b border-gray-700">
           <p className="text-green-400 text-xs flex items-center gap-1">
-            🔒 AES-256 Encrypted
+            🔒 {t.encrypted}
           </p>
         </div>
 
         {/* Online count */}
         <div className="px-4 py-2 border-b border-gray-700">
           <p className="text-gray-400 text-xs">
-            🟢 {onlineUsers.length} online
+            🟢 {onlineUsers.length} {t.online}
           </p>
         </div>
 
         {/* Channels */}
         <div className="flex-1 overflow-y-auto py-2">
-          <p className="text-gray-500 text-xs uppercase px-4 py-2 font-semibold">Channels</p>
-          {channels.map(channel => (
-            <button
-              key={channel.name}
-              onClick={() => setActiveChannel(channel)}
-              className={`w-full text-left px-4 py-2 text-sm transition ${
-                activeChannel?.name === channel.name
-                  ? 'bg-bp-green bg-opacity-20 text-white'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              <span className="mr-2">{channel.icon}</span>
-              # {channel.name}
-            </button>
-          ))}
+          <p className="text-gray-500 text-xs uppercase px-4 py-2 font-semibold">{t.channels}</p>
+          {channels.map(channel => {
+            const isUnlocked = channel.type === 'public' || user?.role === 'admin' || unlockedChannels.includes(channel.name);
+            return (
+              <button
+                key={channel.name}
+                onClick={() => {
+                  if (isUnlocked) {
+                    setActiveChannel(channel);
+                  } else {
+                    setAccessChannel(channel);
+                  }
+                }}
+                className={`w-full text-left px-4 py-2 text-sm transition flex items-center justify-between ${
+                  activeChannel?.name === channel.name
+                    ? 'bg-bp-green bg-opacity-20 text-white'
+                    : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                <span>
+                  <span className="mr-2">{channel.icon}</span>
+                  # {channel.name}
+                </span>
+                {!isUnlocked && <span className="text-xs">🔒</span>}
+              </button>
+            );
+          })}
+
+          {/* DM Section */}
+          <div className="px-4 py-2 border-t border-gray-700 mt-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-gray-500 text-xs uppercase font-semibold">
+                Direct Messages
+              </p>
+              <button
+                onClick={() => setShowUserList(true)}
+                className="text-gray-400 hover:text-white text-lg leading-none"
+                title="New DM"
+              >
+                +
+              </button>
+            </div>
+            {dmChannels.map(channel => (
+              <button
+                key={channel.name}
+                onClick={() => setActiveChannel(channel)}
+                className={`w-full text-left px-2 py-1.5 text-sm rounded transition ${
+                  activeChannel?.name === channel.name
+                    ? 'bg-bp-green bg-opacity-20 text-white'
+                    : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                💬 {channel.displayName}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Emergency + Handover Buttons */}
+        {/* Buttons */}
         <div className="p-3 border-t border-gray-700 space-y-2">
           <button
             onClick={() => setShowEmergencyModal(true)}
             className="w-full bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
           >
-            🚨 Emergency Broadcast
+            🚨 {t.emergencyBroadcast}
           </button>
           {activeChannel?.name === 'acg-operations' && (
             <button
               onClick={() => setShowHandover(true)}
               className="w-full bg-blue-700 hover:bg-blue-800 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
             >
-              📋 Shift Handover
+              📋 {t.shiftHandover}
+            </button>
+          )}
+          {user?.role === 'admin' && (
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
+            >
+              ⚙️ Admin Panel
             </button>
           )}
         </div>
@@ -301,7 +383,13 @@ function Chat({ user, onLogout }) {
               <p className="text-white text-sm font-medium truncate">{user?.name}</p>
               <p className="text-gray-400 text-xs truncate">{user?.department}</p>
             </div>
-            <button onClick={onLogout} className="text-gray-500 hover:text-red-400 text-xs transition" title="Logout">⏻</button>
+            <button
+              onClick={onLogout}
+              className="text-gray-500 hover:text-red-400 text-xs transition"
+              title={t.logout}
+            >
+              ⏻
+            </button>
           </div>
         </div>
       </div>
@@ -311,10 +399,17 @@ function Chat({ user, onLogout }) {
         {activeChannel && (
           <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
             <div>
-              <h2 className="text-white font-semibold">{activeChannel.icon} #{activeChannel.name}</h2>
+              <h2 className="text-white font-semibold">
+                {activeChannel.icon} {activeChannel.type === 'dm' ? activeChannel.displayName : `#${activeChannel.name}`}
+              </h2>
               <p className="text-gray-400 text-sm">{activeChannel.description}</p>
             </div>
-            <div className="text-green-400 text-xs flex items-center gap-1">🔒 End-to-End Encrypted</div>
+            <div className="flex items-center gap-4">
+              <LanguageSelector />
+              <div className="text-green-400 text-xs flex items-center gap-1">
+                🔒 {t.endToEnd}
+              </div>
+            </div>
           </div>
         )}
 
@@ -322,8 +417,8 @@ function Chat({ user, onLogout }) {
           {messages.length === 0 && (
             <div className="text-center text-gray-500 mt-20">
               <p className="text-4xl mb-4">🔒</p>
-              <p>No messages yet. Start the conversation.</p>
-              <p className="text-xs mt-2">All messages are end-to-end encrypted</p>
+              <p>{t.noMessages}</p>
+              <p className="text-xs mt-2">{t.allEncrypted}</p>
             </div>
           )}
           {messages.map((msg, index) => (
@@ -352,6 +447,13 @@ function Chat({ user, onLogout }) {
           </div>
         )}
 
+        {/* Word warning */}
+        {wordWarning && (
+          <div className="mx-4 mb-2 bg-red-500 bg-opacity-20 border border-red-500 text-red-400 px-4 py-2 rounded-lg text-sm">
+            {wordWarning}
+          </div>
+        )}
+
         <div className="p-4 border-t border-gray-700">
           <form onSubmit={sendMessage} className="flex gap-2">
             <select
@@ -359,27 +461,58 @@ function Chat({ user, onLogout }) {
               onChange={(e) => setPriority(e.target.value)}
               className="bg-bp-gray border border-gray-600 text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bp-green"
             >
-              <option value="normal">🔵 Normal</option>
-              <option value="important">🟡 Important</option>
-              <option value="urgent">🔴 Urgent</option>
-              <option value="confidential">⚫ Confidential</option>
+              <option value="normal">🔵 {t.normal}</option>
+              <option value="important">🟡 {t.important}</option>
+              <option value="urgent">🔴 {t.urgent}</option>
+              <option value="confidential">⚫ {t.confidential}</option>
             </select>
             <input
               type="text"
               value={newMessage}
-              onChange={(e) => { setNewMessage(e.target.value); handleTyping(); }}
-              placeholder={`Message #${activeChannel?.name || ''}...`}
+              onChange={(e) => {
+                setNewMessage(e.target.value);
+                handleTyping();
+                if (wordWarning) setWordWarning('');
+              }}
+              placeholder={`${t.messagePlaceholder} #${activeChannel?.name || ''}...`}
               className="flex-1 bg-bp-gray border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-bp-green"
             />
-            <button type="submit" className="bg-bp-green hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition">
-              Send
+            <button
+              type="submit"
+              className="bg-bp-green hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition"
+            >
+              {t.send}
             </button>
           </form>
           <p className="text-gray-600 text-xs mt-2 flex items-center gap-1">
-            🔒 Messages are encrypted before leaving your device
+            🔒 {t.messagesEncrypted}
           </p>
         </div>
       </div>
+
+      {accessChannel && (
+        <ChannelAccess
+          channel={accessChannel}
+          userDepartment={user?.department}
+          onAccessGranted={(channelName) => {
+            setUnlockedChannels(prev => [...prev, channelName]);
+            const ch = channels.find(c => c.name === channelName);
+            if (ch) setActiveChannel(ch);
+            setAccessChannel(null);
+          }}
+          onClose={() => setAccessChannel(null)}
+        />
+      )}
+
+      {showUserList && (
+        <UserList
+          currentUser={user}
+          onStartDM={startDM}
+          onClose={() => setShowUserList(false)}
+        />
+      )}
+
+      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
 
       {showHandover && <ShiftHandover onClose={() => setShowHandover(false)} />}
     </div>

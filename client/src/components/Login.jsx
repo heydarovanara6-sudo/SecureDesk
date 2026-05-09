@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useLanguage } from '../LanguageContext';
 import LanguageSelector from './LanguageSelector';
+import API_BASE from '../config';
 
 function Login({ onLogin, onGoRegister }) {
   const { t } = useLanguage();
@@ -16,7 +17,7 @@ function Login({ onLogin, onGoRegister }) {
     setError('');
     setLoading(true);
     try {
-      const res = await axios.post('http://127.0.0.1:5000/api/login', { email, password });
+      const res = await axios.post(`${API_BASE}/api/login`, { email, password });
       onLogin(res.data.user, res.data.token);
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');

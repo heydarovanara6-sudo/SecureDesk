@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -89,7 +90,7 @@ function IncidentReport({ user, onClose }) {
 
   const updateStatus = async (id, status) => {
     try {
-      await axios.patch(`http://127.0.0.1:5000/api/incidents/${id}/status`, { status }, { headers });
+      await axios.patch(`${API_BASE}/api/incidents/${id}/status`, { status }, { headers });
       setIncidents(prev => prev.map(i => i._id === id ? { ...i, status } : i));
       if (selected?._id === id) setSelected(prev => ({ ...prev, status }));
     } catch (e) { console.error(e); }

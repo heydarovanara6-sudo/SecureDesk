@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState } from 'react';
 
 const SUMMARY_MODES = [

@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -84,7 +85,7 @@ function Chat({ user, onLogout }) {
   const token = localStorage.getItem('token');
 
   useEffect(() => {
-    socket = io('http://127.0.0.1:5000', { query: { token } });
+    socket = io(API_BASE, { query: { token } });
     socket.on('new_message', (msg) => {
       // Skip already-expired messages
       if (msg.expires_at && new Date(msg.expires_at).getTime() <= Date.now()) return;
@@ -176,7 +177,7 @@ function Chat({ user, onLogout }) {
     const fetchMessages = async () => {
       try {
         const res = await axios.get(
-          `http://127.0.0.1:5000/api/messages/${activeChannel.name}`,
+          `${API_BASE}/api/messages/${activeChannel.name}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const decrypted = res.data.map(msg => ({
@@ -411,22 +412,22 @@ function Chat({ user, onLogout }) {
           <div className="mt-1">
             {isImage && (
               <img
-                src={`http://127.0.0.1:5000${fileData.url}`}
+                src={`${API_BASE}${fileData.url}`}
                 alt={fileData.name}
                 className="max-w-xs max-h-48 rounded-lg cursor-pointer hover:opacity-90"
-                onClick={() => window.open(`http://127.0.0.1:5000${fileData.url}`)}
+                onClick={() => window.open(`${API_BASE}${fileData.url}`)}
               />
             )}
             {isVideo && (
               <video
-                src={`http://127.0.0.1:5000${fileData.url}`}
+                src={`${API_BASE}${fileData.url}`}
                 controls
                 className="max-w-xs max-h-48 rounded-lg"
               />
             )}
             {!isImage && !isVideo && (
               <a
-                href={`http://127.0.0.1:5000${fileData.url}`}
+                href={`${API_BASE}${fileData.url}`}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-2 text-sm text-white hover:bg-gray-600 w-fit"

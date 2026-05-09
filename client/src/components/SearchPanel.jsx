@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useCallback } from 'react';
 import axios from 'axios';
 import CryptoJS from 'crypto-js';
@@ -69,7 +70,7 @@ function SearchPanel({ onClose, onJumpToChannel }) {
       if (dateTo) params.set('date_to', dateTo);
 
       const res = await axios.get(
-        `http://127.0.0.1:5000/api/messages/search?${params.toString()}`,
+        `${API_BASE}/api/messages/search?${params.toString()}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
@@ -278,10 +279,10 @@ function SearchPanel({ onClose, onJumpToChannel }) {
                               {isImage && (
                                 <div>
                                   <img
-                                    src={`http://127.0.0.1:5000${fileData.url}`}
+                                    src={`${API_BASE}${fileData.url}`}
                                     alt={fileData.name}
                                     className="max-w-xs max-h-32 rounded-lg cursor-pointer hover:opacity-90 mb-1"
-                                    onClick={(e) => { e.stopPropagation(); window.open(`http://127.0.0.1:5000${fileData.url}`); }}
+                                    onClick={(e) => { e.stopPropagation(); window.open(`${API_BASE}${fileData.url}`); }}
                                     onError={(e) => { e.target.style.display='none'; }}
                                   />
                                   <p className="text-blue-400 text-xs">📎 {fileData.name}</p>
@@ -290,7 +291,7 @@ function SearchPanel({ onClose, onJumpToChannel }) {
                               {isVideo && (
                                 <div>
                                   <video
-                                    src={`http://127.0.0.1:5000${fileData.url}`}
+                                    src={`${API_BASE}${fileData.url}`}
                                     className="max-w-xs max-h-32 rounded-lg mb-1"
                                     controls
                                     onClick={(e) => e.stopPropagation()}
@@ -300,7 +301,7 @@ function SearchPanel({ onClose, onJumpToChannel }) {
                               )}
                               {!isImage && !isVideo && (
                                 <a
-                                  href={`http://127.0.0.1:5000${fileData.url}`}
+                                  href={`${API_BASE}${fileData.url}`}
                                   target="_blank"
                                   rel="noreferrer"
                                   onClick={(e) => e.stopPropagation()}

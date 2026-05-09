@@ -362,17 +362,17 @@ code, .mono { font-family: 'DM Mono', monospace; }
 }
 
 @media (max-width: 768px) {
-  .mobile-topbar { display: flex; }
-  .desktop-sidebar { display: none; }
-  .sidebar-drawer { display: flex; flex-direction: column; }
-  .chat-input-area { padding: 8px 12px; }
-  .message-list { padding: 12px; }
+  .sidebar-drawer { display: flex !important; flex-direction: column; }
+
+  /* Input area on mobile */
+  .chat-input { font-size: 16px !important; } /* prevents zoom on iOS */
+
+  /* Smaller padding on mobile */
+  .message-row { padding: 4px 8px; }
 }
 
 @media (min-width: 769px) {
-  .desktop-sidebar { display: flex; flex-direction: column; }
   .sidebar-drawer { display: none !important; }
-  .mobile-topbar { display: none !important; }
 }
 
 /* ─── Animations ─────────────────────────────────────────────────── */

@@ -51,6 +51,13 @@ function Chat({ user, onLogout }) {
   const [showSecurity, setShowSecurity] = useState(false);
   const [showIncidents, setShowIncidents] = useState(false);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toast, setToast] = useState(null);
   const [notifSettings, setNotifSettings] = useState(loadNotifSettings);
@@ -479,7 +486,7 @@ function Chat({ user, onLogout }) {
       <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
 
       {/* Mobile top bar */}
-      <div className="mobile-topbar" style={{background:"var(--surface-1)"}}>
+      <div style={{display: isMobile ? "flex" : "none", alignItems:"center", gap:"12px", padding:"10px 16px", borderBottom:"1px solid var(--border)", background:"var(--surface-1)", position:"sticky", top:0, zIndex:50}}>
         <button onClick={() => setSidebarOpen(true)}
           className="btn-ghost px-2.5 py-2 text-lg leading-none">☰</button>
         <div className="flex items-center gap-2 flex-1">
@@ -543,7 +550,7 @@ function Chat({ user, onLogout }) {
       )}
 
       {/* SIDEBAR */}
-      <div className={`w-60 flex flex-col sidebar desktop-sidebar`}>
+      <div className={`w-60 flex-col sidebar`} style={{display: isMobile ? "none" : "flex"}}>
 
         {/* Logo */}
         <div className="px-4 py-4 flex items-center gap-3" style={{borderBottom:"1px solid var(--border)"}}>
@@ -754,7 +761,7 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
       </div>
 
       {/* MAIN CHAT */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col" style={{minWidth:0, overflow:"hidden"}}>
         {activeChannel && (
           <div className="px-5 py-3 flex items-center justify-between" style={{borderBottom:"1px solid var(--border)",background:"var(--surface-1)"}}>
             <div>

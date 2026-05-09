@@ -65,4 +65,4 @@ def create_default_channels():
 if __name__ == "__main__":
     create_default_channels()
     print("🚀 SecureDesk server starting...")
-    socketio.run(app, debug=True, port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False)

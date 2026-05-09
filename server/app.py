@@ -6,8 +6,32 @@ from pymongo import MongoClient
 from config import MONGO_URI
 
 app = Flask(__name__)
-CORS(app, origins=["https://securedesk.xyz", "http://securedesk.xyz", "http://localhost:3000"], supports_credentials=True)
-socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")
+
+CORS(app,
+     origins=[
+         "https://securedesk.xyz",
+         "https://www.securedesk.xyz",
+         "http://securedesk.xyz",
+         "http://localhost:3000",
+         "http://127.0.0.1:3000"
+     ],
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"],
+     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+)
+
+socketio = SocketIO(app,
+    cors_allowed_origins=[
+        "https://securedesk.xyz",
+        "https://www.securedesk.xyz",
+        "http://securedesk.xyz",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    async_mode='eventlet',
+    logger=False,
+    engineio_logger=False
+)
 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where(), tlsAllowInvalidCertificates=True)
 
@@ -39,14 +63,14 @@ register_socket_events(socketio)
 
 def create_default_channels():
     channels = [
-        {"name": "general", "description": "All Employees", "icon": "🌐", "type": "public", "department": None},
-        {"name": "acg-operations", "description": "ACG Offshore Platform", "icon": "🛢️", "type": "department", "department": "ACG Operations"},
-        {"name": "shah-deniz", "description": "Shah Deniz Pipeline", "icon": "⚙️", "type": "department", "department": "Shah Deniz"},
-        {"name": "hr-confidential", "description": "HR Department", "icon": "👥", "type": "department", "department": "HR"},
-        {"name": "legal", "description": "Legal Team", "icon": "⚖️", "type": "department", "department": "Legal"},
-        {"name": "finance", "description": "Finance Team", "icon": "💰", "type": "department", "department": "Finance"},
-        {"name": "executive", "description": "Executive Team", "icon": "🏢", "type": "restricted", "department": "Executive"},
-        {"name": "it-security", "description": "IT & Security", "icon": "🔒", "type": "department", "department": "IT Security"},
+        {"name": "general",        "description": "All Employees",          "icon": "🌐", "type": "public",     "department": None},
+        {"name": "acg-operations", "description": "ACG Offshore Platform",  "icon": "🛢️", "type": "department", "department": "ACG Operations"},
+        {"name": "shah-deniz",     "description": "Shah Deniz Pipeline",    "icon": "⚙️", "type": "department", "department": "Shah Deniz"},
+        {"name": "hr-confidential","description": "HR Department",          "icon": "👥", "type": "department", "department": "HR"},
+        {"name": "legal",          "description": "Legal Team",             "icon": "⚖️", "type": "department", "department": "Legal"},
+        {"name": "finance",        "description": "Finance Team",           "icon": "💰", "type": "department", "department": "Finance"},
+        {"name": "executive",      "description": "Executive Team",         "icon": "🏢", "type": "restricted", "department": "Executive"},
+        {"name": "it-security",    "description": "IT & Security",          "icon": "🔒", "type": "department", "department": "IT Security"},
     ]
     for channel in channels:
         existing = channels_collection.find_one({"name": channel["name"]})
@@ -55,10 +79,7 @@ def create_default_channels():
         else:
             channels_collection.update_one(
                 {"name": channel["name"]},
-                {"$set": {
-                    "type": channel["type"],
-                    "department": channel["department"]
-                }}
+                {"$set": {"type": channel["type"], "department": channel["department"]}}
             )
     print("✅ BP Azerbaijan channels ready")
 

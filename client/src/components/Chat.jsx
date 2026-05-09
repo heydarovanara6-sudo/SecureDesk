@@ -467,7 +467,7 @@ function Chat({ user, onLogout }) {
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   return (
-    <div className="flex h-screen" style={{background:"var(--surface-0)"}}>
+    <div className="flex flex-col h-screen" style={{background:"var(--surface-0)"}}>
 
       {/* Toast notification */}
       {toast && (
@@ -550,6 +550,7 @@ function Chat({ user, onLogout }) {
       )}
 
       {/* SIDEBAR */}
+      <div className="flex flex-1 overflow-hidden">
       <div className={`w-60 flex-col sidebar`} style={{display: isMobile ? "none" : "flex"}}>
 
         {/* Logo */}
@@ -1009,6 +1010,8 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
       {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
 
       {showHandover && <ShiftHandover onClose={() => setShowHandover(false)} />}
+
+      </div>{/* end row */}
 
       {showWeather && <WeatherWidget onClose={() => setShowWeather(false)} />}
 

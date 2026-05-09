@@ -6,7 +6,7 @@ from pymongo import MongoClient
 from config import MONGO_URI
 
 app = Flask(__name__)
-CORS(app, origins="http://localhost:3000")
+CORS(app, origins=["https://securedesk.xyz", "http://securedesk.xyz", "http://localhost:3000"], supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="http://localhost:3000")
 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where(), tlsAllowInvalidCertificates=True)

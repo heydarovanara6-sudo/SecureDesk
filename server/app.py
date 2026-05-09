@@ -21,12 +21,18 @@ from routes.channels import channels_bp
 from routes.messages import messages_bp
 from routes.handover import handover_bp
 from routes.admin import admin_bp
+from routes.ai import ai_bp
+from routes.tasks import tasks_bp
+from routes.incidents import incidents_bp
 
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(channels_bp, url_prefix="/api")
 app.register_blueprint(messages_bp, url_prefix="/api")
 app.register_blueprint(handover_bp, url_prefix="/api")
 app.register_blueprint(admin_bp, url_prefix="/api")
+app.register_blueprint(ai_bp, url_prefix="/api")
+app.register_blueprint(tasks_bp, url_prefix="/api")
+app.register_blueprint(incidents_bp, url_prefix="/api")
 
 from sockets.events import register_socket_events
 register_socket_events(socketio)

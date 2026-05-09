@@ -71,7 +71,8 @@ def register_socket_events(socketio):
             "sender_name": user["name"],
             "sender_email": user["email"],
             "department": user["department"],
-            "timestamp": data.get("timestamp")
+            "timestamp": data.get("timestamp"),
+            "expires_at": data.get("expires_at", None)
         }
         emit('new_message', message, room=data.get("channel"))
 

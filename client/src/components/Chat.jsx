@@ -11,6 +11,12 @@ import AdminPanel from './AdminPanel';
 import { isProfane } from '../wordFilter';
 import MusterRoll from './MusterRoll';
 import WeatherWidget from './WeatherWidget';
+import SearchPanel from './SearchPanel';
+import NotificationSettings, { loadNotifSettings, saveNotifSettings } from './NotificationSettings';
+import AISummary from './AISummary';
+import TaskManager from './TaskManager';
+import SecurityDashboard from './SecurityDashboard';
+import IncidentReport from './IncidentReport';
 
 const SECRET_KEY = 'bp-securedesk-aes-key-2025';
 let socket = null;
@@ -22,6 +28,7 @@ function Chat({ user, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [priority, setPriority] = useState('normal');
+  const [selfDestruct, setSelfDestruct] = useState(0); // 0 = off, seconds
   const [typingUser, setTypingUser] = useState('');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [emergency, setEmergency] = useState(null);
@@ -36,22 +43,84 @@ function Chat({ user, onLogout }) {
   const [showMuster, setShowMuster] = useState(false);
   const [activeMuster, setActiveMuster] = useState(null);
   const [showWeather, setShowWeather] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showNotifSettings, setShowNotifSettings] = useState(false);
+  const [showAISummary, setShowAISummary] = useState(false);
+  const [showTasks, setShowTasks] = useState(false);
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [showIncidents, setShowIncidents] = useState(false);
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [notifSettings, setNotifSettings] = useState(loadNotifSettings);
   const [readReceipts, setReadReceipts] = useState({}); // { msg_id: [{name, time}] }
   const [wordWarning, setWordWarning] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Close tools menu on outside click
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (!e.target.closest('.tools-menu-container')) setShowToolsMenu(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  // Ctrl+K shortcut to open search
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   const fileInputRef = useRef(null);
   const token = localStorage.getItem('token');
 
   useEffect(() => {
     socket = io('http://127.0.0.1:5000', { query: { token } });
     socket.on('new_message', (msg) => {
-      const decrypted = { ...msg, content: decryptMessage(msg.content) };
+      // Skip already-expired messages
+      if (msg.expires_at && new Date(msg.expires_at).getTime() <= Date.now()) return;
+      const decrypted = { ...msg, content: decryptMessage(msg.content), isNew: true };
       setMessages(prev => [...prev, decrypted]);
       // Auto-mark all messages as seen on receipt
       if (msg._id && socket) socket.emit('mark_seen', { msg_id: msg._id });
+      // Smart notification sound
+      const isDM = msg.channel?.startsWith('dm-');
+      const s = loadNotifSettings();
+      if (!s.muteAll && s.sound) {
+        const muted = s.mutedChannels || [];
+        if (!muted.includes(msg.channel)) {
+          const inQuiet = (() => {
+            if (!s.quietHoursEnabled) return false;
+            const now = new Date();
+            const cur = now.getHours() * 60 + now.getMinutes();
+            const [fh, fm] = (s.quietFrom || '22:00').split(':').map(Number);
+            const [th, tm] = (s.quietTo || '07:00').split(':').map(Number);
+            const from = fh * 60 + fm, to = th * 60 + tm;
+            return from > to ? (cur >= from || cur <= to) : (cur >= from && cur <= to);
+          })();
+          if (!inQuiet) {
+            const play = s.focusMode
+              ? (msg.priority === 'urgent' || isDM)
+              : (msg.priority === 'urgent' ? s.urgentSound
+                : msg.priority === 'important' ? s.importantSound
+                : isDM ? s.dmSound
+                : s.normalSound);
+            if (play) {
+              const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA==');
+              audio.play().catch(() => {});
+            }
+          }
+        }
+      }
     });
     socket.on('user_typing', (data) => {
       setTypingUser(`${data.name} is typing...`);
@@ -131,6 +200,21 @@ function Chat({ user, onLogout }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Self-destruct cleanup — check every second, remove expired messages
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setMessages(prev => {
+        const filtered = prev.filter(msg => {
+          if (!msg.expires_at) return true;
+          return new Date(msg.expires_at).getTime() > now;
+        });
+        return filtered.length !== prev.length ? filtered : prev;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const encryptMessage = (text) =>
     CryptoJS.AES.encrypt(text, SECRET_KEY).toString();
 
@@ -141,9 +225,42 @@ function Chat({ user, onLogout }) {
     } catch { return encrypted; }
   };
 
+  const playSound = () => {
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA==');
+    audio.play().catch(() => {});
+  };
+
+  const shouldNotify = (priority, channelName, isDM = false) => {
+    const s = notifSettings;
+    if (s.muteAll) return false;
+    if (s.mutedChannels.includes(channelName)) return false;
+    // Quiet hours check
+    if (s.quietHoursEnabled) {
+      const now = new Date();
+      const cur = now.getHours() * 60 + now.getMinutes();
+      const [fh, fm] = s.quietFrom.split(':').map(Number);
+      const [th, tm] = s.quietTo.split(':').map(Number);
+      const from = fh * 60 + fm;
+      const to = th * 60 + tm;
+      const inQuiet = from > to ? (cur >= from || cur <= to) : (cur >= from && cur <= to);
+      if (inQuiet) return false;
+    }
+    if (s.focusMode) return priority === 'urgent' || isDM;
+    if (priority === 'urgent') return s.urgentSound;
+    if (priority === 'important') return s.importantSound;
+    if (isDM) return s.dmSound;
+    return s.normalSound;
+  };
+
+  const showToast = (msg, type = 'info') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
+    if (!activeChannel) return;
 
     if (isProfane(newMessage)) {
       setWordWarning('⚠️ Your message contains inappropriate content and cannot be sent.');
@@ -153,25 +270,31 @@ function Chat({ user, onLogout }) {
 
     const encrypted = encryptMessage(newMessage);
     const timestamp = new Date().toISOString();
+    const expires_at = selfDestruct > 0
+      ? new Date(Date.now() + selfDestruct * 1000).toISOString()
+      : null;
     if (socket) {
       socket.emit('send_message', {
         content: encrypted,
         channel: activeChannel.name,
         priority,
-        timestamp
+        timestamp,
+        expires_at
       });
     }
     try {
       await axios.post('http://127.0.0.1:5000/api/messages', {
         content: encrypted,
         channel: activeChannel.name,
-        priority
+        priority,
+        expires_at
       }, { headers: { Authorization: `Bearer ${token}` } });
     } catch (err) {
       console.error('Failed to save message');
     }
     setNewMessage('');
     setPriority('normal');
+    setSelfDestruct(0);
     setWordWarning('');
   };
 
@@ -262,18 +385,18 @@ function Chat({ user, onLogout }) {
 
   const getPriorityStyle = (p) => {
     switch(p) {
-      case 'urgent': return 'border-l-4 border-red-500 bg-red-900 bg-opacity-10';
-      case 'important': return 'border-l-4 border-yellow-500 bg-yellow-900 bg-opacity-10';
-      case 'confidential': return 'border-l-4 border-gray-500 bg-gray-800 bg-opacity-50';
+      case 'urgent': return 'priority-urgent';
+      case 'important': return 'priority-important';
+      case 'confidential': return 'priority-confidential';
       default: return '';
     }
   };
 
   const getPriorityBadge = (p) => {
     switch(p) {
-      case 'urgent': return <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full ml-2">🔴 {t.urgent}</span>;
-      case 'important': return <span className="text-xs bg-yellow-500 text-black px-2 py-0.5 rounded-full ml-2">🟡 {t.important}</span>;
-      case 'confidential': return <span className="text-xs bg-gray-600 text-white px-2 py-0.5 rounded-full ml-2">⚫ {t.confidential}</span>;
+      case 'urgent': return <span className="badge-urgent ml-2">{t.urgent}</span>;
+      case 'important': return <span className="badge-important ml-2">{t.important}</span>;
+      case 'confidential': return <span className="badge-confidential ml-2">{t.confidential}</span>;
       default: return null;
     }
   };
@@ -314,10 +437,10 @@ function Chat({ user, onLogout }) {
           </div>
         );
       } catch {
-        return <p className="text-gray-300 text-sm">{content}</p>;
+        return <p className="text-sm leading-relaxed" style={{color:"var(--text-secondary)"}}>{content}</p>;
       }
     }
-    return <p className="text-gray-300 text-sm">{content}</p>;
+    return <p className="text-sm leading-relaxed" style={{color:"var(--text-secondary)"}}>{content}</p>;
   };
 
   const formatTime = (timestamp) => {
@@ -328,10 +451,47 @@ function Chat({ user, onLogout }) {
 
   const getInitial = (name) => name ? name.charAt(0).toUpperCase() : '?';
 
+  const jumpToChannel = (channelName) => {
+    const ch = channels.find(c => c.name === channelName);
+    if (ch) setActiveChannel(ch);
+  };
+
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   return (
-    <div className="flex h-screen bg-bp-dark">
+    <div className="flex h-screen" style={{background:"var(--surface-0)"}}>
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="toast fixed top-4 right-4 z-[200] px-4 py-3 rounded-xl text-sm font-medium shadow-panel"
+          style={{
+            background: toast.type === 'error' ? 'rgba(255,68,68,0.15)' : 'var(--surface-3)',
+            border: `1px solid ${toast.type === 'error' ? 'rgba(255,68,68,0.3)' : 'var(--border)'}`,
+            color: toast.type === 'error' ? '#FF6B6B' : 'var(--text-primary)',
+            maxWidth: '300px'
+          }}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Mobile overlay */}
+      <div className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`} onClick={() => setSidebarOpen(false)} />
+
+      {/* Mobile top bar */}
+      <div className="mobile-topbar" style={{background:"var(--surface-1)"}}>
+        <button onClick={() => setSidebarOpen(true)}
+          className="btn-ghost px-2.5 py-2 text-lg leading-none">☰</button>
+        <div className="flex items-center gap-2 flex-1">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center"
+            style={{background:"linear-gradient(135deg,#007A3D,#00A650)"}}>
+            <img src="/bplogo.png" alt="BP" className="w-4 h-4 object-contain" />
+          </div>
+          <span className="font-semibold text-sm text-white">
+            {activeChannel ? `#${activeChannel.name}` : 'SecureDesk'}
+          </span>
+        </div>
+        <span className="enc-badge text-xs">🔒 E2E</span>
+      </div>
 
       {/* EMERGENCY ALERT */}
       {emergency && (
@@ -354,7 +514,7 @@ function Chat({ user, onLogout }) {
       {/* EMERGENCY MODAL */}
       {showEmergencyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-70 z-40 flex items-center justify-center">
-          <div className="bg-bp-gray rounded-xl p-6 w-96">
+          <div className="rounded-xl p-6 w-96 scale-in" style={{background:"var(--surface-2)",border:"1px solid var(--border)"}}>
             <h3 className="text-white font-bold text-lg mb-4">🚨 {t.sendEmergency}</h3>
             <p className="text-gray-400 text-sm mb-4">{t.emergencyWarning}</p>
             <textarea
@@ -382,36 +542,27 @@ function Chat({ user, onLogout }) {
       )}
 
       {/* SIDEBAR */}
-      <div className="w-64 bg-bp-gray flex flex-col">
+      <div className={`w-60 flex flex-col sidebar desktop-sidebar`}>
 
         {/* Logo */}
-        <div className="p-4 border-b border-gray-700">
+        <div className="px-4 py-4 flex items-center gap-3" style={{borderBottom:"1px solid var(--border)"}}>
           <div className="flex items-center gap-3">
-            <img src="/bplogo.png" alt="BP" className="w-8 h-8 object-contain" />
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{background:"linear-gradient(135deg,#007A3D,#00A650)"}}><img src="/bplogo.png" alt="BP" className="w-5 h-5 object-contain" /></div>
             <div>
-              <h1 className="text-white font-bold text-sm">{t.appName}</h1>
-              <p className="text-gray-400 text-xs">BP Azerbaijan</p>
+              <div><p className="text-white font-semibold text-sm leading-none">SecureDesk</p><p className="text-xs mt-0.5" style={{color:"var(--text-muted)"}}>BP Azerbaijan</p></div>
             </div>
           </div>
         </div>
 
         {/* Security Status */}
-        <div className="px-4 py-2 bg-green-900 bg-opacity-30 border-b border-gray-700">
-          <p className="text-green-400 text-xs flex items-center gap-1">
-            🔒 {t.encrypted}
-          </p>
-        </div>
+        <div className="px-4 py-2" style={{borderBottom:"1px solid var(--border)"}}><span className="enc-badge">🔒 {t.encrypted}</span></div>
 
         {/* Online count */}
-        <div className="px-4 py-2 border-b border-gray-700">
-          <p className="text-gray-400 text-xs">
-            🟢 {onlineUsers.length} {t.online}
-          </p>
-        </div>
+        <div className="px-4 py-2 flex items-center gap-2" style={{borderBottom:"1px solid var(--border)"}}><span className="status-online"></span><span className="text-xs" style={{color:"var(--text-secondary)"}}>{onlineUsers.length} {t.online}</span></div>
 
         {/* Channels */}
         <div className="flex-1 overflow-y-auto py-2">
-          <p className="text-gray-500 text-xs uppercase px-4 py-2 font-semibold">{t.channels}</p>
+          <p className="section-label">{t.channels}</p>
           {channels.map(channel => {
             const isUnlocked = channel.type === 'public' || isAdmin || unlockedChannels.includes(channel.name);
             return (
@@ -424,11 +575,7 @@ function Chat({ user, onLogout }) {
                     setAccessChannel(channel);
                   }
                 }}
-                className={`w-full text-left px-4 py-2 text-sm transition flex items-center justify-between ${
-                  activeChannel?.name === channel.name
-                    ? 'bg-bp-green bg-opacity-20 text-white'
-                    : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-                }`}
+className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}
               >
                 <span>
                   <span className="mr-2">{channel.icon}</span>
@@ -457,11 +604,7 @@ function Chat({ user, onLogout }) {
               <button
                 key={channel.name}
                 onClick={() => setActiveChannel(channel)}
-                className={`w-full text-left px-2 py-1.5 text-sm rounded transition ${
-                  activeChannel?.name === channel.name
-                    ? 'bg-bp-green bg-opacity-20 text-white'
-                    : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-                }`}
+                className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}
               >
                 💬 {channel.displayName}
               </button>
@@ -469,54 +612,68 @@ function Chat({ user, onLogout }) {
           </div>
         </div>
 
-        {/* Buttons */}
-        <div className="p-3 border-t border-gray-700 space-y-2">
+        {/* Tools Menu */}
+        <div className="p-3 border-t border-gray-700">
+          {/* Emergency — always visible, standalone */}
           <button
             onClick={() => setShowEmergencyModal(true)}
-            className="w-full bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
+            className="w-full text-sm font-semibold py-2 rounded-lg transition flex items-center justify-center gap-2 mb-2" style={{background:"rgba(255,68,68,0.15)",border:"1px solid rgba(255,68,68,0.3)",color:"#FF6B6B"}}
           >
             🚨 {t.emergencyBroadcast}
           </button>
-          <button
-            onClick={() => setShowMuster(true)}
-            className="w-full bg-orange-700 hover:bg-orange-800 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
-          >
-            🧑‍🤝‍🧑 Muster Roll Call
-            {activeMuster && <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 animate-pulse">LIVE</span>}
-          </button>
-          <button
-            onClick={() => setShowWeather(true)}
-            className="w-full bg-blue-800 hover:bg-blue-900 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
-          >
-            🌊 Caspian Conditions
-          </button>
-          {activeChannel?.name === 'acg-operations' && (
+
+          {/* Tools dropdown */}
+          <div className="relative tools-menu-container">
             <button
-              onClick={() => setShowHandover(true)}
-              className="w-full bg-blue-700 hover:bg-blue-800 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
+              onClick={() => setShowToolsMenu(prev => !prev)}
+              className="btn-ghost w-full text-sm font-semibold py-2 flex items-center justify-between px-3"
             >
-              📋 {t.shiftHandover}
+              <span className="flex items-center gap-2">
+                ⚙️ Tools
+                {activeMuster && <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 animate-pulse">LIVE</span>}
+                {(notifSettings.muteAll || notifSettings.focusMode) && (
+                  <span className="bg-yellow-600 text-white text-xs rounded-full px-1.5 py-0.5">
+                    {notifSettings.muteAll ? '🔕' : '🎯'}
+                  </span>
+                )}
+              </span>
+              <span className="text-gray-500">{showToolsMenu ? '▲' : '▼'}</span>
             </button>
-          )}
-          {isAdmin && (
-            <button
-              onClick={() => setShowAdmin(true)}
-              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-bold py-2 rounded-lg transition flex items-center justify-center gap-2"
-            >
-              ⚙️ Admin Panel
-            </button>
-          )}
+
+            {showToolsMenu && (
+              <div className="absolute bottom-10 left-0 right-0 rounded-xl overflow-hidden z-10 drop-in" style={{background:"var(--surface-3)",border:"1px solid var(--border)",boxShadow:"0 16px 48px rgba(0,0,0,0.6)"}}>
+                {[
+                  { icon: '📋', label: 'Incident Report',    action: () => { setShowIncidents(true); setShowToolsMenu(false); } },
+                  { icon: '🧑‍🤝‍🧑', label: 'Muster Roll Call',   action: () => { setShowMuster(true); setShowToolsMenu(false); } },
+                  { icon: '🌊', label: 'Caspian Conditions', action: () => { setShowWeather(true); setShowToolsMenu(false); } },
+                  { icon: '✅', label: 'Task Manager',       action: () => { setShowTasks(true); setShowToolsMenu(false); } },
+                  { icon: '🔔', label: `Notifications${notifSettings.muteAll ? ' (Muted)' : notifSettings.focusMode ? ' (Focus)' : ''}`, action: () => { setShowNotifSettings(true); setShowToolsMenu(false); } },
+                  ...(activeChannel?.name === 'acg-operations' ? [{ icon: '📋', label: t.shiftHandover, action: () => { setShowHandover(true); setShowToolsMenu(false); } }] : []),
+                  ...(isAdmin ? [
+                    { icon: '🛡️', label: 'Security Dashboard', action: () => { setShowSecurity(true); setShowToolsMenu(false); } },
+                    { icon: '⚙️', label: 'Admin Panel',        action: () => { setShowAdmin(true); setShowToolsMenu(false); } },
+                  ] : []),
+                ].map((item, i) => (
+                  <button key={i} onClick={item.action}
+                    className="w-full text-left px-4 py-2.5 text-sm transition flex items-center gap-3" style={{color:"var(--text-secondary)",borderBottom:"1px solid var(--border)"}}>
+                    <span>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* User Info */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)"}}>
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-bp-green rounded-full flex items-center justify-center text-white text-sm font-bold">
+            <div className="avatar" style={{width:"32px",height:"32px",fontSize:"0.75rem"}}>
               {getInitial(user?.name)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-gray-400 text-xs truncate">{user?.department}</p>
+              <p className="text-sm font-medium truncate" style={{color:"var(--text-primary)"}}>{user?.name}</p>
+              <p className="text-xs truncate" style={{color:"var(--text-muted)"}}>{user?.department}</p>
             </div>
             <button
               onClick={onLogout}
@@ -529,46 +686,140 @@ function Chat({ user, onLogout }) {
         </div>
       </div>
 
+      {/* Mobile sidebar drawer */}
+      <div className={`sidebar-drawer sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="p-4 flex items-center justify-between" style={{borderBottom:"1px solid var(--border)"}}>
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{background:"linear-gradient(135deg,#007A3D,#00A650)"}}>
+              <img src="/bplogo.png" alt="BP" className="w-5 h-5 object-contain" />
+            </div>
+            <span className="font-bold text-white text-sm">SecureDesk</span>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} className="text-gray-400 hover:text-white text-lg">✕</button>
+        </div>
+        <div className="px-4 py-2"><span className="enc-badge">🔒 AES-256 Encrypted</span></div>
+        <div className="flex items-center gap-2 px-4 py-2" style={{borderBottom:"1px solid var(--border)"}}>
+          <span className="status-online"></span>
+          <span className="text-xs" style={{color:"var(--text-secondary)"}}>{onlineUsers.length} online</span>
+        </div>
+        <div className="flex-1 overflow-y-auto py-2">
+          <p className="section-label">CHANNELS</p>
+          {channels.map(channel => {
+            const isUnlocked = channel.type === 'public' || isAdmin || unlockedChannels.includes(channel.name);
+            return (
+              <button key={channel.name}
+                onClick={() => { if (isUnlocked) { setActiveChannel(channel); setSidebarOpen(false); } else { setAccessChannel(channel); setSidebarOpen(false); } }}
+                className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}>
+                <span className="mr-1">{channel.icon}</span>
+                # {channel.name}
+                {!isUnlocked && <span className="ml-auto text-xs opacity-40">🔒</span>}
+              </button>
+            );
+          })}
+          <div className="px-4 pt-3 pb-1" style={{borderTop:"1px solid var(--border)",marginTop:"8px"}}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="section-label" style={{padding:0}}>DIRECT MESSAGES</p>
+              <button onClick={() => { setShowUserList(true); setSidebarOpen(false); }}
+                className="text-gray-400 hover:text-white text-lg leading-none">+</button>
+            </div>
+            {dmChannels.map(channel => (
+              <button key={channel.name} onClick={() => { setActiveChannel(channel); setSidebarOpen(false); }}
+                className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}>
+                💬 {channel.displayName}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="p-3" style={{borderTop:"1px solid var(--border)"}}>
+          <button onClick={() => { setShowEmergencyModal(true); setSidebarOpen(false); }}
+            className="w-full text-sm font-semibold py-2 rounded-lg flex items-center justify-center gap-2 mb-2"
+            style={{background:"rgba(255,68,68,0.15)",border:"1px solid rgba(255,68,68,0.3)",color:"#FF6B6B"}}>
+            🚨 Emergency Broadcast
+          </button>
+          <button onClick={() => { setShowToolsMenu(p => !p); }}
+            className="btn-ghost w-full text-sm font-semibold py-2 flex items-center justify-between px-3">
+            <span>⚙️ Tools</span><span style={{color:"var(--text-muted)"}}>▲</span>
+          </button>
+        </div>
+        <div className="p-3 flex items-center gap-3" style={{borderTop:"1px solid var(--border)"}}>
+          <div className="avatar" style={{width:"32px",height:"32px",fontSize:"0.75rem"}}>{getInitial(user?.name)}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate" style={{color:"var(--text-primary)"}}>{user?.name}</p>
+            <p className="text-xs truncate" style={{color:"var(--text-muted)"}}>{user?.department}</p>
+          </div>
+          <button onClick={onLogout} className="text-gray-500 hover:text-red-400 text-xs transition">⏻</button>
+        </div>
+      </div>
+
       {/* MAIN CHAT */}
       <div className="flex-1 flex flex-col">
         {activeChannel && (
-          <div className="px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+          <div className="px-5 py-3 flex items-center justify-between" style={{borderBottom:"1px solid var(--border)",background:"var(--surface-1)"}}>
             <div>
-              <h2 className="text-white font-semibold">
+              <h2 className="font-semibold text-white" style={{fontSize:"0.95rem"}}>
                 {activeChannel.icon} {activeChannel.type === 'dm' ? activeChannel.displayName : `#${activeChannel.name}`}
               </h2>
-              <p className="text-gray-400 text-sm">{activeChannel.description}</p>
+              <p className="text-xs mt-0.5" style={{color:"var(--text-secondary)"}}>{activeChannel.description}</p>
             </div>
             <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowSearch(true)}
+                className="btn-ghost px-3 py-1.5 text-sm flex items-center gap-1.5"
+                title="Search messages"
+              >
+                🔍 Search
+              </button>
+              <button
+                onClick={() => setShowAISummary(true)}
+                className="px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 font-medium" style={{background:"rgba(139,92,246,0.15)",border:"1px solid rgba(139,92,246,0.3)",color:"#A78BFA"}}
+                title="AI Summary"
+              >
+                🤖 AI Summary
+              </button>
               <LanguageSelector />
-              <div className="text-green-400 text-xs flex items-center gap-1">
-                🔒 {t.endToEnd}
-              </div>
+              <span className="enc-badge">🔒 {t.endToEnd}</span>
             </div>
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
           {messages.length === 0 && (
-            <div className="text-center text-gray-500 mt-20">
+            <div className="text-center mt-20" style={{color:"var(--text-muted)"}}>
               <p className="text-4xl mb-4">🔒</p>
               <p>{t.noMessages}</p>
               <p className="text-xs mt-2">{t.allEncrypted}</p>
             </div>
           )}
           {messages.map((msg, index) => (
-            <div key={index} className={`flex gap-3 rounded-lg p-2 ${getPriorityStyle(msg.priority)}`}>
-              <div className="w-8 h-8 bg-bp-green rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                {getInitial(msg.sender_name)}
-              </div>
+            <div key={index} className={`message-row ${getPriorityStyle(msg.priority)} ${msg.isNew ? "msg-animate" : ""}`}>
+              <div className="avatar">{getInitial(msg.sender_name)}</div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <span className="text-white text-sm font-semibold">{msg.sender_name}</span>
-                  <span className="text-gray-500 text-xs">{msg.department}</span>
-                  <span className="text-gray-600 text-xs">{formatTime(msg.timestamp)}</span>
+                  <span className="font-semibold text-sm" style={{color:"var(--text-primary)"}}>{msg.sender_name}</span>
+                  <span className="text-xs" style={{color:"var(--text-muted)"}}>{msg.department}</span>
+                  <span className="text-xs font-mono" style={{color:"var(--text-muted)"}}>{formatTime(msg.timestamp)}</span>
                   {getPriorityBadge(msg.priority)}
-                  <span className="text-green-600 text-xs ml-auto">🔒</span>
+                  <span className="text-xs ml-auto opacity-30" style={{color:"var(--bp-green)"}}>🔒</span>
                 </div>
+                {/* Self-destruct timer display */}
+                {msg.expires_at && (() => {
+                  const secsLeft = Math.max(0, Math.round((new Date(msg.expires_at).getTime() - Date.now()) / 1000));
+                  const pct = msg.selfDestructSecs ? (secsLeft / msg.selfDestructSecs) * 100 : 50;
+                  return (
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs text-red-400 font-mono animate-pulse">
+                        💣 Deletes in {secsLeft}s
+                      </span>
+                      <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-1 bg-red-500 rounded-full transition-all"
+                          style={{ width: `${Math.min(100, secsLeft > 0 ? (secsLeft / 300) * 100 : 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
                 {renderMessageContent(msg.content)}
                 {/* Read Receipts — all messages */}
                 {msg._id && (
@@ -601,14 +852,19 @@ function Chat({ user, onLogout }) {
         </div>
 
         {typingUser && (
-          <div className="px-6 py-1">
-            <p className="text-gray-500 text-xs italic">{typingUser}</p>
+          <div className="px-5 py-1.5 flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+              <span className="typing-dot"></span>
+            </div>
+            <p className="text-xs" style={{color:"var(--text-muted)"}}>{typingUser}</p>
           </div>
         )}
 
         {/* File Preview */}
         {selectedFile && (
-          <div className="mx-4 mb-2 bg-gray-700 rounded-lg px-3 py-2 flex items-center justify-between">
+          <div className="mx-4 mb-2 rounded-lg px-3 py-2 flex items-center justify-between" style={{background:"var(--surface-3)",border:"1px solid var(--border)"}}>
             <div className="flex items-center gap-2">
               {filePreview ? (
                 <img src={filePreview} alt="preview" className="w-10 h-10 rounded object-cover" />
@@ -631,12 +887,12 @@ function Chat({ user, onLogout }) {
 
         {/* Word warning */}
         {wordWarning && (
-          <div className="mx-4 mb-2 bg-red-500 bg-opacity-20 border border-red-500 text-red-400 px-4 py-2 rounded-lg text-sm">
+          <div className="mx-4 mb-2 px-4 py-2 rounded-lg text-sm" style={{background:"rgba(255,68,68,0.08)",border:"1px solid rgba(255,68,68,0.25)",color:"#FF6B6B"}}>
             {wordWarning}
           </div>
         )}
 
-        <div className="p-4 border-t border-gray-700">
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)"}}>
           <form
             onSubmit={selectedFile ? (e) => { e.preventDefault(); sendFile(); } : sendMessage}
             className="flex gap-2"
@@ -644,7 +900,7 @@ function Chat({ user, onLogout }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg transition"
+              className="btn-ghost px-3 py-2"
               title="Attach file"
             >
               📎
@@ -658,16 +914,32 @@ function Chat({ user, onLogout }) {
             />
 
             {!selectedFile && (
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-                className="bg-bp-gray border border-gray-600 text-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-bp-green"
-              >
-                <option value="normal">🔵 {t.normal}</option>
-                <option value="important">🟡 {t.important}</option>
-                <option value="urgent">🔴 {t.urgent}</option>
-                <option value="confidential">⚫ {t.confidential}</option>
-              </select>
+              <>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value)}
+                  className="text-sm rounded-lg px-3 py-2 focus:outline-none" style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}
+                >
+                  <option value="normal">🔵 {t.normal}</option>
+                  <option value="important">🟡 {t.important}</option>
+                  <option value="urgent">🔴 {t.urgent}</option>
+                  <option value="confidential">⚫ {t.confidential}</option>
+                </select>
+                {/* Self-destruct timer picker */}
+                <select
+                  value={selfDestruct}
+                  onChange={(e) => setSelfDestruct(Number(e.target.value))}
+                  className="text-sm rounded-lg px-2 py-2 focus:outline-none" style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}
+                  title="Self-destruct timer"
+                >
+                  <option value={0}>💬 Keep</option>
+                  <option value={30}>💣 30s</option>
+                  <option value={60}>💣 1min</option>
+                  <option value={300}>💣 5min</option>
+                  <option value={3600}>💣 1hr</option>
+                  <option value={86400}>💣 24hr</option>
+                </select>
+              </>
             )}
 
             {selectedFile ? (
@@ -689,20 +961,18 @@ function Chat({ user, onLogout }) {
                     if (wordWarning) setWordWarning('');
                   }}
                   placeholder={`${t.messagePlaceholder} #${activeChannel?.name || ''}...`}
-                  className="flex-1 bg-bp-gray border border-gray-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:border-bp-green"
+                  className="chat-input flex-1"
                 />
                 <button
                   type="submit"
-                  className="bg-bp-green hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition"
+                  className="btn-primary px-5 py-2"
                 >
                   {t.send}
                 </button>
               </>
             )}
           </form>
-          <p className="text-gray-600 text-xs mt-2 flex items-center gap-1">
-            🔒 {t.messagesEncrypted}
-          </p>
+          <p className="text-xs mt-2 flex items-center gap-1" style={{color:"var(--text-muted)"}}>🔒 {t.messagesEncrypted}</p>
         </div>
       </div>
 
@@ -733,6 +1003,29 @@ function Chat({ user, onLogout }) {
       {showHandover && <ShiftHandover onClose={() => setShowHandover(false)} />}
 
       {showWeather && <WeatherWidget onClose={() => setShowWeather(false)} />}
+
+      {showSearch && <SearchPanel onClose={() => setShowSearch(false)} onJumpToChannel={jumpToChannel} />}
+
+      {showTasks && <TaskManager user={user} onClose={() => setShowTasks(false)} />}
+
+      {showSecurity && <SecurityDashboard onClose={() => setShowSecurity(false)} />}
+
+      {showIncidents && <IncidentReport user={user} onClose={() => setShowIncidents(false)} />}
+
+      {showAISummary && (
+        <AISummary
+          messages={messages}
+          channelName={activeChannel?.name || ''}
+          onClose={() => setShowAISummary(false)}
+        />
+      )}
+
+      {showNotifSettings && (
+        <NotificationSettings
+          onClose={() => setShowNotifSettings(false)}
+          onSettingsChange={(s) => setNotifSettings(s)}
+        />
+      )}
 
       {showMuster && (
         <MusterRoll

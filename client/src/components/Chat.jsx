@@ -18,6 +18,7 @@ import AISummary from './AISummary';
 import TaskManager from './TaskManager';
 import SecurityDashboard from './SecurityDashboard';
 import IncidentReport from './IncidentReport';
+import AgentChat from './AgentChat';
 
 const SECRET_KEY = 'bp-securedesk-aes-key-2025';
 let socket = null;
@@ -586,7 +587,7 @@ function Chat({ user, onLogout }) {
                     setAccessChannel(channel);
                   }
                 }}
-className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}
+                className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.name ? 'active' : ''}`}
               >
                 <span>
                   <span className="mr-2">{channel.icon}</span>
@@ -816,7 +817,6 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
                 {/* Self-destruct timer display */}
                 {msg.expires_at && (() => {
                   const secsLeft = Math.max(0, Math.round((new Date(msg.expires_at).getTime() - Date.now()) / 1000));
-                  const pct = msg.selfDestructSecs ? (secsLeft / msg.selfDestructSecs) * 100 : 50;
                   return (
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs text-red-400 font-mono animate-pulse">
@@ -832,7 +832,7 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
                   );
                 })()}
                 {renderMessageContent(msg.content)}
-                {/* Read Receipts — all messages */}
+                {/* Read Receipts */}
                 {msg._id && (
                   <div className="mt-1.5 flex items-center gap-1 flex-wrap">
                     {readReceipts[msg._id] && readReceipts[msg._id].length > 0 ? (
@@ -907,7 +907,7 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
           <form
             onSubmit={selectedFile ? (e) => { e.preventDefault(); sendFile(); } : sendMessage}
           >
-            {/* Top row: selects (hidden on mobile when not needed) */}
+            {/* Top row: selects */}
             {!selectedFile && (
               <div className="flex gap-2 mb-2" style={{display: isMobile ? 'none' : 'flex'}}>
                 <select value={priority} onChange={(e) => setPriority(e.target.value)}
@@ -1019,6 +1019,10 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
           onClose={() => setShowMuster(false)}
         />
       )}
+
+      {/* AI Agent — floating chat bubble, always available */}
+      <AgentChat user={user} />
+
     </div>
   );
 }

@@ -48,6 +48,7 @@ from routes.admin import admin_bp
 from routes.ai import ai_bp
 from routes.tasks import tasks_bp
 from routes.incidents import incidents_bp
+from routes.agent import agent_bp  # ← moved here
 
 app.register_blueprint(auth_bp, url_prefix="/api")
 app.register_blueprint(channels_bp, url_prefix="/api")
@@ -57,33 +58,4 @@ app.register_blueprint(admin_bp, url_prefix="/api")
 app.register_blueprint(ai_bp, url_prefix="/api")
 app.register_blueprint(tasks_bp, url_prefix="/api")
 app.register_blueprint(incidents_bp, url_prefix="/api")
-
-from sockets.events import register_socket_events
-register_socket_events(socketio)
-
-def create_default_channels():
-    channels = [
-        {"name": "general",        "description": "All Employees",          "icon": "🌐", "type": "public",     "department": None},
-        {"name": "acg-operations", "description": "ACG Offshore Platform",  "icon": "🛢️", "type": "department", "department": "ACG Operations"},
-        {"name": "shah-deniz",     "description": "Shah Deniz Pipeline",    "icon": "⚙️", "type": "department", "department": "Shah Deniz"},
-        {"name": "hr-confidential","description": "HR Department",          "icon": "👥", "type": "department", "department": "HR"},
-        {"name": "legal",          "description": "Legal Team",             "icon": "⚖️", "type": "department", "department": "Legal"},
-        {"name": "finance",        "description": "Finance Team",           "icon": "💰", "type": "department", "department": "Finance"},
-        {"name": "executive",      "description": "Executive Team",         "icon": "🏢", "type": "restricted", "department": "Executive"},
-        {"name": "it-security",    "description": "IT & Security",          "icon": "🔒", "type": "department", "department": "IT Security"},
-    ]
-    for channel in channels:
-        existing = channels_collection.find_one({"name": channel["name"]})
-        if not existing:
-            channels_collection.insert_one(channel)
-        else:
-            channels_collection.update_one(
-                {"name": channel["name"]},
-                {"$set": {"type": channel["type"], "department": channel["department"]}}
-            )
-    print("✅ BP Azerbaijan channels ready")
-
-if __name__ == "__main__":
-    create_default_channels()
-    print("🚀 SecureDesk server starting...")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+app.register_blueprint(agent_bp, url_prefix="/api")  # ← moved here

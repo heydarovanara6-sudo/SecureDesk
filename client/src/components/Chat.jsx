@@ -672,7 +672,7 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
         </div>
 
         {/* User Info */}
-        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)"}}>
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom))" : "12px"}}>
           <div className="flex items-center gap-3">
             <div className="avatar" style={{width:"32px",height:"32px",fontSize:"0.75rem"}}>
               {getInitial(user?.name)}
@@ -898,46 +898,24 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
           </div>
         )}
 
-        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)"}}>
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom))" : "12px"}}>
           <form
             onSubmit={selectedFile ? (e) => { e.preventDefault(); sendFile(); } : sendMessage}
-            className="flex gap-2"
           >
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="btn-ghost px-3 py-2"
-              title="Attach file"
-            >
-              📎
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xlsx"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-
+            {/* Top row: selects (hidden on mobile when not needed) */}
             {!selectedFile && (
-              <>
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="text-sm rounded-lg px-3 py-2 focus:outline-none" style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}
-                >
+              <div className="flex gap-2 mb-2" style={{display: isMobile ? 'none' : 'flex'}}>
+                <select value={priority} onChange={(e) => setPriority(e.target.value)}
+                  className="text-sm rounded-lg px-3 py-1.5 focus:outline-none flex-1"
+                  style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}>
                   <option value="normal">🔵 {t.normal}</option>
                   <option value="important">🟡 {t.important}</option>
                   <option value="urgent">🔴 {t.urgent}</option>
                   <option value="confidential">⚫ {t.confidential}</option>
                 </select>
-                {/* Self-destruct timer picker */}
-                <select
-                  value={selfDestruct}
-                  onChange={(e) => setSelfDestruct(Number(e.target.value))}
-                  className="text-sm rounded-lg px-2 py-2 focus:outline-none" style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}
-                  title="Self-destruct timer"
-                >
+                <select value={selfDestruct} onChange={(e) => setSelfDestruct(Number(e.target.value))}
+                  className="text-sm rounded-lg px-2 py-1.5 focus:outline-none"
+                  style={{background:"var(--surface-3)",border:"1px solid var(--border)",color:"var(--text-secondary)"}}>
                   <option value={0}>💬 Keep</option>
                   <option value={30}>💣 30s</option>
                   <option value={60}>💣 1min</option>
@@ -945,38 +923,31 @@ className={`sidebar-channel w-full text-left ${activeChannel?.name === channel.n
                   <option value={3600}>💣 1hr</option>
                   <option value={86400}>💣 24hr</option>
                 </select>
-              </>
+              </div>
             )}
-
-            {selectedFile ? (
-              <button
-                type="submit"
-                disabled={uploading}
-                className="flex-1 bg-bp-green hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold transition"
-              >
-                {uploading ? 'Uploading...' : `Send ${selectedFile.name}`}
-              </button>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => {
-                    setNewMessage(e.target.value);
-                    handleTyping();
-                    if (wordWarning) setWordWarning('');
-                  }}
-                  placeholder={`${t.messagePlaceholder} #${activeChannel?.name || ''}...`}
-                  className="chat-input flex-1"
-                />
-                <button
-                  type="submit"
-                  className="btn-primary px-5 py-2"
-                >
-                  {t.send}
+            {/* Main input row */}
+            <div className="flex gap-2">
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="btn-ghost px-3 py-2 shrink-0" title="Attach file">📎</button>
+              <input ref={fileInputRef} type="file"
+                accept="image/*,video/*,.pdf,.doc,.docx,.txt,.xlsx"
+                onChange={handleFileSelect} className="hidden" />
+              {selectedFile ? (
+                <button type="submit" disabled={uploading}
+                  className="flex-1 text-white px-4 py-2 rounded-lg font-semibold transition text-sm"
+                  style={{background:"var(--bp-green)"}}>
+                  {uploading ? 'Uploading...' : `Send ${selectedFile.name.slice(0,20)}`}
                 </button>
-              </>
-            )}
+              ) : (
+                <>
+                  <input type="text" value={newMessage}
+                    onChange={(e) => { setNewMessage(e.target.value); handleTyping(); if (wordWarning) setWordWarning(''); }}
+                    placeholder={`Message #${activeChannel?.name || ''}...`}
+                    className="chat-input flex-1" style={{fontSize: isMobile ? '16px' : undefined}} />
+                  <button type="submit" className="btn-primary px-4 py-2 shrink-0">{t.send}</button>
+                </>
+              )}
+            </div>
           </form>
           <p className="text-xs mt-2 flex items-center gap-1" style={{color:"var(--text-muted)"}}>🔒 {t.messagesEncrypted}</p>
         </div>

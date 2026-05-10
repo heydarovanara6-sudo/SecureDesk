@@ -1,4 +1,3 @@
-
 FROM node:18-alpine as build
 
 WORKDIR /app
@@ -9,6 +8,10 @@ RUN npm install
 
 # Copy source
 COPY . .
+
+# ✅ Accept env variable at build time
+ARG REACT_APP_API_URL=https://api.securedesk.xyz
+ENV REACT_APP_API_URL=$REACT_APP_API_URL
 
 # Build for production
 RUN npm run build

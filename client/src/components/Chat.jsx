@@ -342,10 +342,14 @@ function Chat({ user, onLogout }) {
       const res = await axios.post(`${API_BASE}/api/upload`, formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      // Include file_token in URL so recipients can access the file
+      const fileUrl = res.data.file_token
+        ? `${res.data.url}?token=${res.data.file_token}`
+        : res.data.url;
       const fileContent = `📎 __FILE__${JSON.stringify({
-        name: selectedFile.name,
+        name: res.data.name || selectedFile.name,
         type: selectedFile.type,
-        url: res.data.url
+        url: fileUrl
       })}`;
       const encrypted = encryptMessage(fileContent);
       if (socket) {
@@ -364,7 +368,8 @@ function Chat({ user, onLogout }) {
       setSelectedFile(null);
       setFilePreview(null);
     } catch (err) {
-      console.error('Upload failed');
+      console.error('Upload failed:', err.response?.data || err.message);
+      alert('Upload failed: ' + (err.response?.data?.error || err.message));
     } finally {
       setUploading(false);
     }

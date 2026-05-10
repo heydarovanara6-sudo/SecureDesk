@@ -1,1 +1,38 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Python
+server/venv/
+server/__pycache__/
+server/**/__pycache__/
+*.pyc
+*.pyo
+
+# Environment files — keep .env.production so Coolify can build correctly
 .env
+.env.local
+.env.development
+.env.development.local
+.env.test.local
+# NOTE: .env.production is NOT ignored so Coolify picks it up during build
+
+# Build output
+client/build/
+
+# Logs
+*.log
+nohup.out
+flask.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Uploads (user files stored on server)
+server/uploads/

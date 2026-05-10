@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -40,7 +41,7 @@ function TaskManager({ user, onClose }) {
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('http://127.0.0.1:5000/api/tasks', { headers });
+      const res = await axios.get('${API_BASE}/api/tasks', { headers });
       setTasks(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -51,7 +52,7 @@ function TaskManager({ user, onClose }) {
   const createTask = async () => {
     if (!form.title.trim()) return;
     try {
-      await axios.post('http://127.0.0.1:5000/api/tasks', form, { headers });
+      await axios.post('${API_BASE}/api/tasks', form, { headers });
       setShowCreate(false);
       setForm({ title:'', description:'', assigned_to:'', assigned_email:'', priority:'normal', channel:'general', due_date:'' });
       fetchTasks();
@@ -60,7 +61,7 @@ function TaskManager({ user, onClose }) {
 
   const updateStatus = async (id, status) => {
     try {
-      await axios.patch(`http://127.0.0.1:5000/api/tasks/${id}`, { status }, { headers });
+      await axios.patch(`${API_BASE}/api/tasks/${id}`, { status }, { headers });
       setTasks(prev => prev.map(t => t._id === id ? { ...t, status } : t));
       if (selected?._id === id) setSelected(prev => ({ ...prev, status }));
     } catch (e) { console.error(e); }
@@ -69,7 +70,7 @@ function TaskManager({ user, onClose }) {
   const deleteTask = async (id) => {
     if (!window.confirm('Delete this task?')) return;
     try {
-      await axios.delete(`http://127.0.0.1:5000/api/tasks/${id}`, { headers });
+      await axios.delete(`${API_BASE}/api/tasks/${id}`, { headers });
       setTasks(prev => prev.filter(t => t._id !== id));
       if (selected?._id === id) setSelected(null);
     } catch (e) { console.error(e); }
@@ -78,7 +79,7 @@ function TaskManager({ user, onClose }) {
   const addComment = async () => {
     if (!comment.trim() || !selected) return;
     try {
-      await axios.post(`http://127.0.0.1:5000/api/tasks/${selected._id}/comment`, { text: comment }, { headers });
+      await axios.post(`${API_BASE}/api/tasks/${selected._id}/comment`, { text: comment }, { headers });
       const newComment = { text: comment, author: user.name, time: new Date().toISOString() };
       setSelected(prev => ({ ...prev, comments: [...(prev.comments||[]), newComment] }));
       setTasks(prev => prev.map(t => t._id === selected._id

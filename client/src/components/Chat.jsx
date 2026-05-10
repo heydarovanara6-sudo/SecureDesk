@@ -166,7 +166,7 @@ function Chat({ user, onLogout }) {
   useEffect(() => {
     const fetchChannels = async () => {
       try {
-        const res = await axios.get('http://127.0.0.1:5000/api/channels', {
+        const res = await axios.get(`${API_BASE}/api/channels`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setChannels(res.data);
@@ -291,7 +291,7 @@ function Chat({ user, onLogout }) {
       });
     }
     try {
-      await axios.post('http://127.0.0.1:5000/api/messages', {
+      await axios.post(`${API_BASE}/api/messages`, {
         content: encrypted,
         channel: activeChannel.name,
         priority,
@@ -339,11 +339,8 @@ function Chat({ user, onLogout }) {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      const res = await axios.post('http://127.0.0.1:5000/api/upload', formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        }
+      const res = await axios.post(`${API_BASE}/api/upload`, formData, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       const fileContent = `📎 __FILE__${JSON.stringify({
         name: selectedFile.name,
@@ -359,7 +356,7 @@ function Chat({ user, onLogout }) {
           timestamp: new Date().toISOString()
         });
       }
-      await axios.post('http://127.0.0.1:5000/api/messages', {
+      await axios.post(`${API_BASE}/api/messages`, {
         content: encrypted,
         channel: activeChannel.name,
         priority: 'normal'

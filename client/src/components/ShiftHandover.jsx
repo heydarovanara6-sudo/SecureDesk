@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -16,7 +17,7 @@ function ShiftHandover({ onClose }) {
   useEffect(() => {
     const fetchLatest = async () => {
       try {
-        const res = await axios.get('http://127.0.0.1:5000/api/handover/latest', {
+        const res = await axios.get('${API_BASE}/api/handover/latest', {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.data) setLatest(res.data);
@@ -30,7 +31,7 @@ function ShiftHandover({ onClose }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://127.0.0.1:5000/api/handover', form, {
+      await axios.post('${API_BASE}/api/handover', form, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setSubmitted(true);

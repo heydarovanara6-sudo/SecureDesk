@@ -1,3 +1,4 @@
+import API_BASE from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
@@ -13,9 +14,9 @@ function AdminPanel({ onClose }) {
     setLoading(true);
     try {
       const [reqRes, usersRes, auditRes] = await Promise.all([
-        axios.get('http://127.0.0.1:5000/api/admin/requests', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('http://127.0.0.1:5000/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('http://127.0.0.1:5000/api/admin/audit', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('${API_BASE}/api/admin/requests', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('${API_BASE}/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get('${API_BASE}/api/admin/audit', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       setRequests(reqRes.data);
       setUsers(usersRes.data);
@@ -32,7 +33,7 @@ function AdminPanel({ onClose }) {
   const handleRequest = async (email, channel, action) => {
     try {
       await axios.post(
-        `http://127.0.0.1:5000/api/admin/requests/${email}/${channel}/${action}`,
+        `${API_BASE}/api/admin/requests/${email}/${channel}/${action}`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -45,7 +46,7 @@ function AdminPanel({ onClose }) {
   const handleToggleUser = async (email) => {
     try {
       await axios.post(
-        `http://127.0.0.1:5000/api/admin/users/${email}/toggle`,
+        `${API_BASE}/api/admin/users/${email}/toggle`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );

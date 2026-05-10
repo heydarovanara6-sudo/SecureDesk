@@ -1,19 +1,17 @@
 import certifi
-from flask import Blueprint, request, jsonify
+import os
+import hashlib
+import jwt as pyjwt
+from flask import Blueprint, request, jsonify, redirect
 from pymongo import MongoClient
 from bson import ObjectId
 from config import MONGO_URI
 from middleware.auth_middleware import token_required
-from datetime import datetime
-
-try:
-    from safetext import SafeText
-    st_en = SafeText(language='en')
-    st_ru = SafeText(language='ru')
-    st_az = SafeText(language='az')
-    safetext_available = True
-except:
-    safetext_available = False
+from datetime import datetime, timedelta
+from werkzeug.utils import secure_filename
+from minio import Minio
+from minio.error import S3Error
+import io
 
 messages_bp = Blueprint("messages", __name__)
 
@@ -22,52 +20,77 @@ db = client["securedesk"]
 messages_collection = db["messages"]
 acknowledgements_collection = db["acknowledgements"]
 
+JWT_SECRET = os.environ.get('JWT_SECRET', 'bp-securedesk-secret-2025')
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
 
-@messages_bp.route("/messages/search", methods=["GET"])
-@token_required
-def search_messages():
-    query = request.args.get("q", "").strip()
-    channel = request.args.get("channel", "")
-    sender = request.args.get("sender", "")
-    priority = request.args.get("priority", "")
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
+ALLOWED_EXTENSIONS = {
+    'png', 'jpg', 'jpeg', 'gif', 'webp',
+    'mp4', 'mov', 'avi',
+    'pdf', 'doc', 'docx', 'txt', 'xlsx'
+}
 
-    filters = {}
+# ─── MinIO client ─────────────────────────────────────────────────
+MINIO_ENDPOINT_RAW = os.environ.get('MINIO_ENDPOINT', 'minio:9000')
+# Strip protocol if provided
+MINIO_ENDPOINT = MINIO_ENDPOINT_RAW.replace('https://', '').replace('http://', '')
+MINIO_ACCESS_KEY = os.environ.get('MINIO_ACCESS_KEY', 'minioadmin')
+MINIO_SECRET_KEY = os.environ.get('MINIO_SECRET_KEY', 'minioadmin')
+MINIO_BUCKET = os.environ.get('MINIO_BUCKET', 'securedesk-files')
+MINIO_SECURE = os.environ.get('MINIO_SECURE', 'false').lower() == 'true'
 
-    if channel:
-        filters["channel"] = channel
-    if sender:
-        filters["sender_name"] = {"$regex": sender, "$options": "i"}
-    if priority:
-        filters["priority"] = priority
-    if date_from or date_to:
-        filters["timestamp"] = {}
-        if date_from:
-            filters["timestamp"]["$gte"] = date_from
-        if date_to:
-            filters["timestamp"]["$lte"] = date_to + "T23:59:59"
+minio_client = Minio(
+    MINIO_ENDPOINT,
+    access_key=MINIO_ACCESS_KEY,
+    secret_key=MINIO_SECRET_KEY,
+    secure=MINIO_SECURE
+)
 
-    messages = list(messages_collection.find(
-        filters,
-        {"_id": 1, "content": 1, "channel": 1, "sender_name": 1,
-         "sender_email": 1, "department": 1, "priority": 1, "timestamp": 1}
-    ).sort("timestamp", -1).limit(100))
+def ensure_bucket():
+    try:
+        if not minio_client.bucket_exists(MINIO_BUCKET):
+            minio_client.make_bucket(MINIO_BUCKET)
+            print(f"✅ Created MinIO bucket: {MINIO_BUCKET}")
+    except Exception as e:
+        print(f"⚠️ MinIO bucket error: {e}")
 
-    for msg in messages:
-        msg["_id"] = str(msg["_id"])
+try:
+    ensure_bucket()
+except Exception as e:
+    print(f"⚠️ MinIO connection failed: {e}")
 
-    return jsonify(messages), 200
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def hash_filename(original_filename, user_email):
+    timestamp = str(datetime.utcnow().timestamp())
+    raw = f"{user_email}:{original_filename}:{timestamp}"
+    hashed = hashlib.sha256(raw.encode()).hexdigest()
+    ext = original_filename.rsplit('.', 1)[-1].lower() if '.' in original_filename else 'bin'
+    return f"{hashed}.{ext}"
+
+def generate_file_token(object_name, user_email):
+    payload = {
+        "file": object_name,
+        "sub": user_email,
+        "exp": datetime.utcnow().timestamp() + 3600
+    }
+    return pyjwt.encode(payload, JWT_SECRET, algorithm="HS256")
+
+def verify_file_token(token, object_name):
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return payload.get("file") == object_name
+    except Exception:
+        return False
+
 
 @messages_bp.route("/messages/<channel_name>", methods=["GET"])
 @token_required
 def get_messages(channel_name):
-    # Clean expired self-destruct messages from DB
     messages_collection.delete_many({
         "channel": channel_name,
         "expires_at": {"$ne": None, "$lt": datetime.utcnow().isoformat()}
     })
-
     messages = list(messages_collection.find(
         {"channel": channel_name,
          "$or": [{"expires_at": None}, {"expires_at": {"$gt": datetime.utcnow().isoformat()}}]},
@@ -112,47 +135,114 @@ def send_message():
 def acknowledge_message(message_id):
     user_name = request.user.get("name")
     user_email = request.user.get("email")
-
     existing = acknowledgements_collection.find_one({
-        "message_id": message_id,
-        "user_email": user_email
+        "message_id": message_id, "user_email": user_email
     })
-
     if existing:
         return jsonify({"message": "Already acknowledged"}), 200
-
     acknowledgements_collection.insert_one({
         "message_id": message_id,
         "user_name": user_name,
         "user_email": user_email,
         "timestamp": datetime.utcnow().isoformat()
     })
-
     return jsonify({"message": "Acknowledged"}), 201
 
-import os
-from werkzeug.utils import secure_filename
 
-UPLOAD_FOLDER = 'uploads'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+@messages_bp.route("/messages/search", methods=["GET"])
+@token_required
+def search_messages():
+    channel = request.args.get("channel", "")
+    sender = request.args.get("sender", "")
+    priority = request.args.get("priority", "")
+    date_from = request.args.get("date_from", "")
+    date_to = request.args.get("date_to", "")
+
+    filters = {}
+    if channel:
+        filters["channel"] = channel
+    if sender:
+        filters["sender_name"] = {"$regex": sender, "$options": "i"}
+    if priority:
+        filters["priority"] = priority
+    if date_from or date_to:
+        filters["timestamp"] = {}
+        if date_from:
+            filters["timestamp"]["$gte"] = date_from
+        if date_to:
+            filters["timestamp"]["$lte"] = date_to + "T23:59:59"
+
+    messages = list(messages_collection.find(
+        filters,
+        {"_id": 1, "content": 1, "channel": 1, "sender_name": 1,
+         "sender_email": 1, "department": 1, "priority": 1, "timestamp": 1}
+    ).sort("timestamp", -1).limit(100))
+
+    for msg in messages:
+        msg["_id"] = str(msg["_id"])
+
+    return jsonify(messages), 200
+
 
 @messages_bp.route("/upload", methods=["POST"])
 @token_required
 def upload_file():
     if 'file' not in request.files:
-        return jsonify({"error": "No file"}), 400
+        return jsonify({"error": "No file provided"}), 400
+
     file = request.files['file']
-    filename = secure_filename(file.filename)
-    unique_name = f"{datetime.utcnow().timestamp()}_{filename}"
-    filepath = os.path.join(UPLOAD_FOLDER, unique_name)
-    file.save(filepath)
+    if not file.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": "File type not allowed"}), 400
+
+    # Check size
+    file_data = file.read()
+    if len(file_data) > MAX_FILE_SIZE:
+        return jsonify({"error": "File too large (max 20MB)"}), 400
+
+    user_email = request.user.get("email")
+    original_name = secure_filename(file.filename)
+    object_name = hash_filename(original_name, user_email)
+
+    # Detect content type
+    content_type = file.content_type or 'application/octet-stream'
+
+    # Upload to MinIO
+    try:
+        minio_client.put_object(
+            MINIO_BUCKET,
+            object_name,
+            io.BytesIO(file_data),
+            length=len(file_data),
+            content_type=content_type
+        )
+    except S3Error as e:
+        print(f"MinIO upload error: {e}")
+        return jsonify({"error": "File upload failed"}), 500
+
+    file_token = generate_file_token(object_name, user_email)
+
     return jsonify({
-        "url": f"/api/files/{unique_name}",
-        "name": filename
+        "url": f"/api/files/{object_name}",
+        "file_token": file_token,
+        "name": original_name
     }), 201
 
-@messages_bp.route("/files/<filename>", methods=["GET"])
-@token_required
-def get_file(filename):
-    from flask import send_from_directory
-    return send_from_directory(UPLOAD_FOLDER, filename)
+
+@messages_bp.route("/files/<object_name>", methods=["GET"])
+def get_file(object_name):
+    file_token = request.args.get("token")
+    if not file_token or not verify_file_token(file_token, object_name):
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        # Generate a presigned URL from MinIO (valid 1 hour)
+        url = minio_client.presigned_get_object(
+            MINIO_BUCKET,
+            object_name,
+            expires=timedelta(hours=1)
+        )
+        return redirect(url)
+    except S3Error as e:
+        return jsonify({"error": "File not found"}), 404

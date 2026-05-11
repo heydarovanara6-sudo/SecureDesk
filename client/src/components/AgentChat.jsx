@@ -1,295 +1,285 @@
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
 import API_BASE from '../config';
 
-const SUGGESTIONS = [
-  'Help me draft an incident report',
-  'Summarize shift handover steps',
-  'What should I include in a safety briefing?',
-  'Help me write a channel announcement',
-];
+const RobotIcon = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="4" x2="32" y2="12" stroke="#00A650" strokeWidth="2.5" strokeLinecap="round"/>
+    <circle cx="32" cy="3" r="3" fill="#00A650"/>
+    <rect x="14" y="12" width="36" height="26" rx="6" fill="#1C1C21" stroke="#00A650" strokeWidth="2"/>
+    <circle cx="24" cy="24" r="5" fill="#0D0D0F"/>
+    <circle cx="40" cy="24" r="5" fill="#0D0D0F"/>
+    <circle cx="24" cy="24" r="3" fill="#00A650"/>
+    <circle cx="40" cy="24" r="3" fill="#00A650"/>
+    <path d="M22 32 Q32 37 42 32" stroke="#00A650" strokeWidth="2" strokeLinecap="round" fill="none"/>
+    <rect x="18" y="40" width="28" height="16" rx="4" fill="#1C1C21" stroke="#00A650" strokeWidth="2"/>
+    <circle cx="26" cy="48" r="3" fill="#00A650" opacity="0.7"/>
+    <circle cx="32" cy="48" r="3" fill="#00A650" opacity="0.5"/>
+    <circle cx="38" cy="48" r="3" fill="#00A650" opacity="0.3"/>
+    <rect x="6" y="42" width="10" height="4" rx="2" fill="#00A650" opacity="0.6"/>
+    <rect x="48" y="42" width="10" height="4" rx="2" fill="#00A650" opacity="0.6"/>
+  </svg>
+);
 
-export default function AgentChat({ user }) {
+function AgentChat({ user }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      content: `Hello${user?.name ? ` ${user.name.split(' ')[0]}` : ''}! I'm your SecureDesk Assistant. I can help you draft reports, answer operational questions, or assist with handovers.`,
-    },
+    { role: 'assistant', text: 'Hi! I am SecureDesk AI. Ask me anything about BP operations, safety, or platform features!' }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [remaining, setRemaining] = useState(null);
-  const [error, setError] = useState('');
-  const bottomRef = useRef(null);
-  const inputRef = useRef(null);
+  const [unread, setUnread] = useState(0);
+  const endRef = useRef(null);
+  const token = localStorage.getItem('token');
 
-  useEffect(() => {
-    if (open) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [open, messages]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { if (!open && messages.length > 1) setUnread(p => p + 1); }, [messages.length]);
+  useEffect(() => { if (open) setUnread(0); }, [open]);
 
-  const send = async (text) => {
-    const content = (text || input).trim();
-    if (!content || loading) return;
+  const getLocalResponse = (msg) => {
+    const l = msg.toLowerCase();
+    if (l.includes('emergency')) return 'For emergencies, use the Emergency Broadcast button to alert all connected personnel immediately.';
+    if (l.includes('encrypt') || l.includes('secur')) return 'All messages are AES-256 encrypted client-side. The server only stores ciphertext.';
+    if (l.includes('channel')) return 'BP Azerbaijan has 8 channels: general, acg-operations, shah-deniz, hr-confidential, legal, finance, executive, and it-security.';
+    if (l.includes('file') || l.includes('upload')) return 'Share files by clicking the paperclip button. Files are stored securely in MinIO cloud storage.';
+    if (l.includes('task')) return 'Use the Task Manager in Tools menu to create, assign, and track tasks with priority levels.';
+    if (l.includes('hello') || l.includes('hi') || l.includes('salam') || l.includes('hey')) return 'Hello! How can I help you today?';
+    if (l.includes('weather') || l.includes('caspian')) return 'Check Caspian Conditions in Tools menu for live weather at ACG Platform, Shah Deniz, and Baku HQ.';
+    if (l.includes('search')) return 'Use the Search button or Ctrl+K to search all messages by channel, priority, sender, or date.';
+    return 'I am here to help with SecureDesk features and BP Azerbaijan operations. What would you like to know?';
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
     setInput('');
-    setError('');
-
-    const userMsg = { role: 'user', content };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
-
-    // Only send role+content to API (strip display-only fields)
-    const apiMessages = nextMessages.map(({ role, content }) => ({ role, content }));
-
     try {
-      const token = localStorage.getItem('token');
-      const res = await axios.post(
-        `${API_BASE}/api/agent/chat`,
-        { messages: apiMessages },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply }]);
-      if (res.data.remaining !== undefined) setRemaining(res.data.remaining);
-    } catch (err) {
-      const msg = err.response?.data?.error || 'Something went wrong. Try again.';
-      setError(msg);
-      setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${msg}` }]);
+      const res = await fetch(API_BASE + '/api/ai/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+          prompt: 'You are SecureDesk AI, a helpful assistant for BP Azerbaijan employees. Be concise (2-3 sentences max), professional. User: ' + userMsg
+        })
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, { role: 'assistant', text: data.summary || getLocalResponse(userMsg) }]);
+    } catch(e) {
+      setMessages(prev => [...prev, { role: 'assistant', text: getLocalResponse(userMsg) }]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
-  };
-
-  const reset = () => {
-    setMessages([{
-      role: 'assistant',
-      content: `Hello${user?.name ? ` ${user.name.split(' ')[0]}` : ''}! I'm your SecureDesk Assistant. How can I help?`,
-    }]);
-    setError('');
-  };
-
   return (
-    <>
-      {/* Floating button */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        title="SecureDesk Assistant"
-        style={{
-          position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          width: '52px',
-          height: '52px',
-          borderRadius: '50%',
-          background: 'var(--bp-green)',
-          border: 'none',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          boxShadow: '0 4px 20px rgba(0,166,80,0.35)',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-          fontSize: '22px',
-        }}
-        onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.08)'}
-        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-      >
-        {open ? '✕' : '✦'}
+    <React.Fragment>
+      <button onClick={() => setOpen(p => !p)}
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300"
+        style={{ background: 'linear-gradient(135deg,#007A3D,#00A650)', boxShadow: '0 4px 24px rgba(0,166,80,0.4)', transform: open ? 'scale(0.9)' : 'scale(1)' }}>
+        {unread > 0 && !open && (
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">{unread}</span>
+        )}
+        <RobotIcon size={30} />
       </button>
 
-      {/* Chat panel */}
       {open && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '88px',
-            right: '24px',
-            width: '360px',
-            maxHeight: '520px',
-            background: 'var(--surface-1)',
-            border: '1px solid var(--border)',
-            borderRadius: '16px',
-            display: 'flex',
-            flexDirection: 'column',
-            zIndex: 1000,
-            overflow: 'hidden',
-          }}
-        >
-          {/* Header */}
-          <div style={{
-            padding: '14px 16px',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            background: 'var(--surface-2)',
-          }}>
-            <div style={{
-              width: '32px', height: '32px', borderRadius: '8px',
-              background: 'linear-gradient(135deg, var(--bp-green-dim), var(--bp-green))',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '15px', flexShrink: 0,
-            }}>✦</div>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
-                SecureDesk Assistant
-              </p>
-              <p style={{ margin: 0, fontSize: '11px', color: 'var(--bp-green)' }}>
-                {remaining !== null ? `${remaining} messages left today` : 'Powered by Claude Haiku'}
-              </p>
+        <div className="fixed bottom-24 right-6 z-50 w-80 rounded-2xl flex flex-col overflow-hidden scale-in"
+          style={{ background:'var(--surface-1)', border:'1px solid var(--border)', boxShadow:'0 16px 48px rgba(0,0,0,0.6)', maxHeight:'450px' }}>
+          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom:'1px solid var(--border)', background:'var(--surface-2)' }}>
+            <RobotIcon size={28} />
+            <div className="flex-1">
+              <p className="text-white font-semibold text-sm">SecureDesk AI</p>
+              <p className="text-xs" style={{ color:'var(--bp-green)' }}>Online</p>
             </div>
-            <button
-              onClick={reset}
-              title="New conversation"
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--text-muted)', fontSize: '16px', padding: '4px',
-                borderRadius: '6px', lineHeight: 1,
-              }}
-            >↺</button>
+            <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-white">x</button>
           </div>
 
-          {/* Messages */}
-          <div style={{
-            flex: 1, overflowY: 'auto', padding: '12px 14px',
-            display: 'flex', flexDirection: 'column', gap: '10px',
-          }}>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ minHeight:0 }}>
             {messages.map((msg, i) => (
-              <div key={i} style={{
-                display: 'flex',
-                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              }}>
-                <div style={{
-                  maxWidth: '85%',
-                  padding: '9px 13px',
-                  borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                  background: msg.role === 'user'
-                    ? 'var(--bp-green)'
-                    : 'var(--surface-3)',
-                  color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
-                  fontSize: '13px',
-                  lineHeight: '1.55',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}>
-                  {msg.content}
+              <div key={i} className={"flex gap-2 " + (msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                {msg.role === 'assistant' && <div className="shrink-0 mt-1"><RobotIcon size={18} /></div>}
+                <div className="max-w-xs px-3 py-2 text-sm leading-relaxed"
+                  style={{ background: msg.role === 'user' ? 'var(--bp-green)' : 'var(--surface-3)', color:'var(--text-primary)',
+                    borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px' }}>
+                  {msg.text}
                 </div>
               </div>
             ))}
-
-            {/* Quick suggestions — only on first message */}
-            {messages.length === 1 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '4px' }}>
-                {SUGGESTIONS.map((s, i) => (
-                  <button key={i} onClick={() => send(s)} style={{
-                    background: 'var(--surface-2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '10px',
-                    padding: '7px 11px',
-                    color: 'var(--text-secondary)',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    transition: 'border-color 0.15s, color 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--bp-green)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-
             {loading && (
-              <div style={{ display: 'flex', gap: '4px', padding: '6px 4px' }}>
-                {[0, 1, 2].map(d => (
-                  <div key={d} style={{
-                    width: '6px', height: '6px', borderRadius: '50%',
-                    background: 'var(--bp-green)',
-                    animation: 'agentPulse 1.2s ease-in-out infinite',
-                    animationDelay: `${d * 0.2}s`,
-                  }} />
-                ))}
+              <div className="flex gap-2 justify-start">
+                <div className="shrink-0 mt-1"><RobotIcon size={18} /></div>
+                <div className="px-3 py-2 rounded-xl" style={{ background:'var(--surface-3)' }}>
+                  <div className="flex gap-1">
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot" style={{animationDelay:'0.15s'}}></div>
+                    <div className="typing-dot" style={{animationDelay:'0.3s'}}></div>
+                  </div>
+                </div>
               </div>
             )}
-            <div ref={bottomRef} />
+            <div ref={endRef}/>
           </div>
 
-          {/* Input */}
-          <div style={{
-            padding: '10px 12px',
-            borderTop: '1px solid var(--border)',
-            background: 'var(--surface-2)',
-            display: 'flex',
-            gap: '8px',
-            alignItems: 'flex-end',
-          }}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKey}
-              placeholder="Ask anything…"
-              rows={1}
-              style={{
-                flex: 1,
-                background: 'var(--surface-3)',
-                border: '1px solid var(--border)',
-                borderRadius: '10px',
-                color: 'var(--text-primary)',
-                fontSize: '13px',
-                padding: '8px 12px',
-                resize: 'none',
-                outline: 'none',
-                fontFamily: 'inherit',
-                lineHeight: '1.5',
-                maxHeight: '100px',
-                overflowY: 'auto',
-              }}
-              onInput={e => {
-                e.target.style.height = 'auto';
-                e.target.style.height = Math.min(e.target.scrollHeight, 100) + 'px';
-              }}
-              onFocus={e => e.target.style.borderColor = 'var(--border-active)'}
-              onBlur={e => e.target.style.borderColor = 'var(--border)'}
-            />
-            <button
-              onClick={() => send()}
-              disabled={!input.trim() || loading}
-              style={{
-                width: '34px', height: '34px', flexShrink: 0,
-                background: input.trim() && !loading ? 'var(--bp-green)' : 'var(--surface-4)',
-                border: 'none',
-                borderRadius: '10px',
-                cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-                color: '#fff',
-                fontSize: '16px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'background 0.15s',
-              }}
-            >↑</button>
+          <div className="p-3" style={{ borderTop:'1px solid var(--border)' }}>
+            <div className="flex gap-2">
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Ask me anything..."
+                className="flex-1 text-sm rounded-lg px-3 py-2 focus:outline-none"
+                style={{ background:'var(--surface-3)', border:'1px solid var(--border)', color:'var(--text-primary)' }}/>
+              <button onClick={sendMessage} disabled={loading || !input.trim()}
+                className="px-3 py-2 rounded-lg text-white font-bold disabled:opacity-40"
+                style={{ background:'var(--bp-green)' }}>
+                Send
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes agentPulse {
-          0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-          40% { opacity: 1; transform: scale(1); }
-        }
-      `}</style>
-    </>
+    </React.Fragment>
   );
 }
+
+export default AgentChat;import React, { useState, useRef, useEffect } from 'react';
+import API_BASE from '../config';
+
+const RobotIcon = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="32" y1="4" x2="32" y2="12" stroke="#00A650" strokeWidth="2.5" strokeLinecap="round"/>
+    <circle cx="32" cy="3" r="3" fill="#00A650"/>
+    <rect x="14" y="12" width="36" height="26" rx="6" fill="#1C1C21" stroke="#00A650" strokeWidth="2"/>
+    <circle cx="24" cy="24" r="5" fill="#0D0D0F"/>
+    <circle cx="40" cy="24" r="5" fill="#0D0D0F"/>
+    <circle cx="24" cy="24" r="3" fill="#00A650"/>
+    <circle cx="40" cy="24" r="3" fill="#00A650"/>
+    <path d="M22 32 Q32 37 42 32" stroke="#00A650" strokeWidth="2" strokeLinecap="round" fill="none"/>
+    <rect x="18" y="40" width="28" height="16" rx="4" fill="#1C1C21" stroke="#00A650" strokeWidth="2"/>
+    <circle cx="26" cy="48" r="3" fill="#00A650" opacity="0.7"/>
+    <circle cx="32" cy="48" r="3" fill="#00A650" opacity="0.5"/>
+    <circle cx="38" cy="48" r="3" fill="#00A650" opacity="0.3"/>
+    <rect x="6" y="42" width="10" height="4" rx="2" fill="#00A650" opacity="0.6"/>
+    <rect x="48" y="42" width="10" height="4" rx="2" fill="#00A650" opacity="0.6"/>
+  </svg>
+);
+
+function AgentChat({ user }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: 'Hi! I am SecureDesk AI. Ask me anything about BP operations, safety, or platform features!' }
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [unread, setUnread] = useState(0);
+  const endRef = useRef(null);
+  const token = localStorage.getItem('token');
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => { if (!open && messages.length > 1) setUnread(p => p + 1); }, [messages.length]);
+  useEffect(() => { if (open) setUnread(0); }, [open]);
+
+  const getLocalResponse = (msg) => {
+    const l = msg.toLowerCase();
+    if (l.includes('emergency')) return 'For emergencies, use the Emergency Broadcast button to alert all connected personnel immediately.';
+    if (l.includes('encrypt') || l.includes('secur')) return 'All messages are AES-256 encrypted client-side. The server only stores ciphertext.';
+    if (l.includes('channel')) return 'BP Azerbaijan has 8 channels: general, acg-operations, shah-deniz, hr-confidential, legal, finance, executive, and it-security.';
+    if (l.includes('file') || l.includes('upload')) return 'Share files by clicking the paperclip button. Files are stored securely in MinIO cloud storage.';
+    if (l.includes('task')) return 'Use the Task Manager in Tools menu to create, assign, and track tasks with priority levels.';
+    if (l.includes('hello') || l.includes('hi') || l.includes('salam') || l.includes('hey')) return 'Hello! How can I help you today?';
+    if (l.includes('weather') || l.includes('caspian')) return 'Check Caspian Conditions in Tools menu for live weather at ACG Platform, Shah Deniz, and Baku HQ.';
+    if (l.includes('search')) return 'Use the Search button or Ctrl+K to search all messages by channel, priority, sender, or date.';
+    return 'I am here to help with SecureDesk features and BP Azerbaijan operations. What would you like to know?';
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setLoading(true);
+    try {
+      const res = await fetch(API_BASE + '/api/ai/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+          prompt: 'You are SecureDesk AI, a helpful assistant for BP Azerbaijan employees. Be concise (2-3 sentences max), professional. User: ' + userMsg
+        })
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, { role: 'assistant', text: data.summary || getLocalResponse(userMsg) }]);
+    } catch(e) {
+      setMessages(prev => [...prev, { role: 'assistant', text: getLocalResponse(userMsg) }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <React.Fragment>
+      <button onClick={() => setOpen(p => !p)}
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300"
+        style={{ background: 'linear-gradient(135deg,#007A3D,#00A650)', boxShadow: '0 4px 24px rgba(0,166,80,0.4)', transform: open ? 'scale(0.9)' : 'scale(1)' }}>
+        {unread > 0 && !open && (
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center font-bold">{unread}</span>
+        )}
+        <RobotIcon size={30} />
+      </button>
+
+      {open && (
+        <div className="fixed bottom-24 right-6 z-50 w-80 rounded-2xl flex flex-col overflow-hidden scale-in"
+          style={{ background:'var(--surface-1)', border:'1px solid var(--border)', boxShadow:'0 16px 48px rgba(0,0,0,0.6)', maxHeight:'450px' }}>
+          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom:'1px solid var(--border)', background:'var(--surface-2)' }}>
+            <RobotIcon size={28} />
+            <div className="flex-1">
+              <p className="text-white font-semibold text-sm">SecureDesk AI</p>
+              <p className="text-xs" style={{ color:'var(--bp-green)' }}>Online</p>
+            </div>
+            <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-white">x</button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ minHeight:0 }}>
+            {messages.map((msg, i) => (
+              <div key={i} className={"flex gap-2 " + (msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                {msg.role === 'assistant' && <div className="shrink-0 mt-1"><RobotIcon size={18} /></div>}
+                <div className="max-w-xs px-3 py-2 text-sm leading-relaxed"
+                  style={{ background: msg.role === 'user' ? 'var(--bp-green)' : 'var(--surface-3)', color:'var(--text-primary)',
+                    borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px' }}>
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-2 justify-start">
+                <div className="shrink-0 mt-1"><RobotIcon size={18} /></div>
+                <div className="px-3 py-2 rounded-xl" style={{ background:'var(--surface-3)' }}>
+                  <div className="flex gap-1">
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot" style={{animationDelay:'0.15s'}}></div>
+                    <div className="typing-dot" style={{animationDelay:'0.3s'}}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div ref={endRef}/>
+          </div>
+
+          <div className="p-3" style={{ borderTop:'1px solid var(--border)' }}>
+            <div className="flex gap-2">
+              <input value={input} onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                placeholder="Ask me anything..."
+                className="flex-1 text-sm rounded-lg px-3 py-2 focus:outline-none"
+                style={{ background:'var(--surface-3)', border:'1px solid var(--border)', color:'var(--text-primary)' }}/>
+              <button onClick={sendMessage} disabled={loading || !input.trim()}
+                className="px-3 py-2 rounded-lg text-white font-bold disabled:opacity-40"
+                style={{ background:'var(--bp-green)' }}>
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </React.Fragment>
+  );
+}
+
+export default AgentChat;

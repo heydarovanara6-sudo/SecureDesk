@@ -678,7 +678,7 @@ function Chat({ user, onLogout }) {
         </div>
 
         {/* User Info */}
-        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom))" : "12px"}}>
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(80px + env(safe-area-inset-bottom))" : "12px"}}>
           <div className="flex items-center gap-3">
             <div className="avatar" style={{width:"32px",height:"32px",fontSize:"0.75rem"}}>
               {getInitial(user?.name)}
@@ -903,7 +903,7 @@ function Chat({ user, onLogout }) {
           </div>
         )}
 
-        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(12px + env(safe-area-inset-bottom))" : "12px"}}>
+        <div className="px-4 py-3" style={{borderTop:"1px solid var(--border)",background:"var(--surface-1)",paddingBottom: isMobile ? "calc(80px + env(safe-area-inset-bottom))" : "12px"}}>
           <form
             onSubmit={selectedFile ? (e) => { e.preventDefault(); sendFile(); } : sendMessage}
           >

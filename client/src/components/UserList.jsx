@@ -33,7 +33,7 @@ function UserList({ currentUser, onStartDM, onClose }) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 z-40 flex items-center justify-center">
-      <div className="rounded-xl w-96 flex flex-col" style={{background:'var(--surface-2)', border:'1px solid var(--border)', maxHeight:'480px'}}>
+      <div className="rounded-xl w-96 flex flex-col" style={{background:'var(--surface-2)', border:'1px solid var(--border)', maxHeight:'520px', width:'420px'}}>
         <div className="p-4 flex items-center justify-between" style={{borderBottom:'1px solid var(--border)'}}>
           <h3 className="text-white font-bold">💬 New Direct Message</h3>
           <button onClick={onClose} className="text-gray-500 hover:text-white">✕</button>

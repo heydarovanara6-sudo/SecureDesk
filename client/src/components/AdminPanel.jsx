@@ -2,6 +2,8 @@ import API_BASE from '../config';
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
+const asArray = (value) => Array.isArray(value) ? value : [];
+
 function AdminPanel({ onClose }) {
   const [tab, setTab] = useState('requests');
   const [requests, setRequests] = useState([]);
@@ -14,15 +16,18 @@ function AdminPanel({ onClose }) {
     setLoading(true);
     try {
       const [reqRes, usersRes, auditRes] = await Promise.all([
-        axios.get('${API_BASE}/api/admin/requests', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('${API_BASE}/api/admin/users', { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get('${API_BASE}/api/admin/audit', { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_BASE}/api/admin/requests`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_BASE}/api/admin/users`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_BASE}/api/admin/audit`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
-      setRequests(reqRes.data);
-      setUsers(usersRes.data);
-      setAudit(auditRes.data);
+      setRequests(asArray(reqRes.data));
+      setUsers(asArray(usersRes.data));
+      setAudit(asArray(auditRes.data));
     } catch (err) {
       console.error('Failed to fetch admin data');
+      setRequests([]);
+      setUsers([]);
+      setAudit([]);
     } finally {
       setLoading(false);
     }

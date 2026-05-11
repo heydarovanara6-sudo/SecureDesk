@@ -61,8 +61,8 @@ function IncidentReport({ user, onClose }) {
   const fetchIncidents = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('${API_BASE}/api/incidents', { headers });
-      setIncidents(res.data);
+      const res = await axios.get(`${API_BASE}/api/incidents`, { headers });
+      setIncidents(Array.isArray(res.data) ? res.data : []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -76,7 +76,7 @@ function IncidentReport({ user, onClose }) {
     }
     setSubmitting(true);
     try {
-      await axios.post('${API_BASE}/api/incidents', form, { headers });
+      await axios.post(`${API_BASE}/api/incidents`, form, { headers });
       setSuccess(true);
       fetchIncidents();
       setTimeout(() => { setSuccess(false); setView('list'); setForm({

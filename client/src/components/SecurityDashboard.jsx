@@ -37,7 +37,7 @@ function SecurityDashboard({ onClose }) {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('${API_BASE}/api/admin/security-stats', { headers });
+      const res = await axios.get(`${API_BASE}/api/admin/security-stats`, { headers });
       setStats(res.data);
       setLastRefresh(new Date().toLocaleTimeString());
     } catch (e) {

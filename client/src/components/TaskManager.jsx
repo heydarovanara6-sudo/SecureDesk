@@ -41,8 +41,8 @@ function TaskManager({ user, onClose }) {
   const fetchTasks = async () => {
     setLoading(true);
     try {
-      const res = await axios.get('${API_BASE}/api/tasks', { headers });
-      setTasks(res.data);
+      const res = await axios.get(`${API_BASE}/api/tasks`, { headers });
+      setTasks(Array.isArray(res.data) ? res.data : []);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -52,7 +52,7 @@ function TaskManager({ user, onClose }) {
   const createTask = async () => {
     if (!form.title.trim()) return;
     try {
-      await axios.post('${API_BASE}/api/tasks', form, { headers });
+      await axios.post(`${API_BASE}/api/tasks`, form, { headers });
       setShowCreate(false);
       setForm({ title:'', description:'', assigned_to:'', assigned_email:'', priority:'normal', channel:'general', due_date:'' });
       fetchTasks();

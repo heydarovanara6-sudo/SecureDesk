@@ -156,7 +156,7 @@ ${formatted}`;
 
     try {
       // Try Flask proxy (works when ANTHROPIC_API_KEY is set on server)
-      const res = await fetch('${API_BASE}/api/ai/summarize', {
+      const res = await fetch(`${API_BASE}/api/ai/summarize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

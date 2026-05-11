@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import API_BASE from '../config';
 
 function ChannelAccess({ channel, userDepartment, onAccessGranted, onClose }) {
   const [requested, setRequested] = useState(false);
@@ -17,7 +18,7 @@ function ChannelAccess({ channel, userDepartment, onAccessGranted, onClose }) {
   const handleRequest = async () => {
     setLoading(true);
     try {
-      await axios.post('http://127.0.0.1:5000/api/channels/request',
+      await axios.post(`${API_BASE}/api/channels/request`,
         { channel_name: channel.name },
         { headers: { Authorization: `Bearer ${token}` } }
       );

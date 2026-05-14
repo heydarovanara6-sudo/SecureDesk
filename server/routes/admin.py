@@ -85,6 +85,19 @@ def handle_request(user_email, channel_name, action):
         "by": request.user.get("email"),
         "timestamp": datetime.utcnow().isoformat()
     })
+
+    # Notify the user in real-time if they are currently connected
+    if action == "approve":
+        try:
+            from app import socketio
+            from sockets.events import connected_users
+            for sid, u in connected_users.items():
+                if u.get("email") == user_email:
+                    socketio.emit("access_granted", {"channel_name": channel_name}, to=sid)
+                    break
+        except Exception as e:
+            print(f"Socket notify failed: {e}")
+
     return jsonify({"message": f"Request {status}"}), 200
 
 # GET audit logs

@@ -161,6 +161,9 @@ function Chat({ user, onLogout }) {
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA==');
       audio.play().catch(() => {});
     });
+    socket.on('access_granted', (data) => {
+      setUnlockedChannels(prev => [...new Set([...prev, data.channel_name])]);
+    });
     return () => { if (socket) socket.disconnect(); };
   }, []);
 

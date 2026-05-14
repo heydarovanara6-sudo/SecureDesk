@@ -48,18 +48,26 @@ function Login({ onLogin, onGoRegister }) {
   };
 
   /* ── Step 2: MFA OTP ── */
-  const handleOtpKey = (index, e) => {
+  const handleOtpChange = (index, e) => {
     const val = e.target.value.replace(/\D/g, '');
-    if (!val && e.key === 'Backspace' && index > 0) {
-      const next = [...otp]; next[index] = '';
-      setOtp(next);
-      inputRefs.current[index - 1]?.focus();
-      return;
-    }
-    if (val) {
-      const next = [...otp]; next[index] = val.slice(-1);
-      setOtp(next);
-      if (index < 5) inputRefs.current[index + 1]?.focus();
+    if (!val) return;
+    const next = [...otp];
+    next[index] = val.slice(-1);
+    setOtp(next);
+    if (index < 5) inputRefs.current[index + 1]?.focus();
+  };
+
+  const handleOtpKey = (index, e) => {
+    if (e.key === 'Backspace') {
+      const next = [...otp];
+      if (next[index]) {
+        next[index] = '';
+        setOtp(next);
+      } else if (index > 0) {
+        next[index - 1] = '';
+        setOtp(next);
+        inputRefs.current[index - 1]?.focus();
+      }
     }
   };
 
@@ -139,7 +147,7 @@ function Login({ onLogin, onGoRegister }) {
                     inputMode="numeric"
                     maxLength={1}
                     value={digit}
-                    onChange={() => {}}
+                    onChange={(e) => handleOtpChange(i, e)}
                     onKeyDown={(e) => handleOtpKey(i, e)}
                     className="w-11 h-13 text-center text-xl font-bold rounded-lg border-2 transition outline-none"
                     style={{

@@ -175,6 +175,11 @@ function Chat({ user, onLogout }) {
         console.error('Failed to refresh access list after grant');
       }
     });
+    socket.on('access_revoked', (data) => {
+      setUnlockedChannels(prev => prev.filter(ch => ch !== data.channel_name));
+      // If user is currently in the revoked channel, bounce them to general
+      setActiveChannel(prev => prev?.name === data.channel_name ? { name: 'general' } : prev);
+    });
     return () => { if (socket) socket.disconnect(); };
   }, []);
 

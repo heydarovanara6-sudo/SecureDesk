@@ -176,7 +176,20 @@ function Chat({ user, onLogout }) {
         console.error('Failed to fetch channels');
       }
     };
+    const fetchApprovedAccess = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/api/channels/my-access`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.data && res.data.length > 0) {
+          setUnlockedChannels(prev => [...new Set([...prev, ...res.data])]);
+        }
+      } catch (err) {
+        console.error('Failed to fetch approved channels');
+      }
+    };
     fetchChannels();
+    fetchApprovedAccess();
   }, []);
 
   useEffect(() => {

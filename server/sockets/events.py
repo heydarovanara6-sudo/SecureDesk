@@ -91,11 +91,6 @@ def register_socket_events(socketio):
         user = connected_users.get(request.sid)
         if not user:
             return
-        # Only admin and super_admin can send emergency broadcasts
-        role = user.get("role", "employee")
-        if role not in ["admin", "super_admin"]:
-            emit('error', {"message": "Not authorized to send emergency broadcasts"})
-            return
         print(f"🚨 EMERGENCY BROADCAST from {user['name']}: {data.get('message')}")
         emit('emergency_alert', {
             "message": data.get("message"),

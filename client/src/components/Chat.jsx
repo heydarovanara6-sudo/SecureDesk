@@ -161,8 +161,19 @@ function Chat({ user, onLogout }) {
       const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA==');
       audio.play().catch(() => {});
     });
-    socket.on('access_granted', (data) => {
+    socket.on('access_granted', async (data) => {
       setUnlockedChannels(prev => [...new Set([...prev, data.channel_name])]);
+      // Re-fetch approved channels from server to stay in sync
+      try {
+        const res = await axios.get(`${API_BASE}/api/channels/my-access`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.data && res.data.length > 0) {
+          setUnlockedChannels(prev => [...new Set([...prev, ...res.data])]);
+        }
+      } catch (err) {
+        console.error('Failed to refresh access list after grant');
+      }
     });
     return () => { if (socket) socket.disconnect(); };
   }, []);

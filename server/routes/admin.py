@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from config import MONGO_URI
 from middleware.auth_middleware import token_required
 from datetime import datetime
+from sockets.events import connected_users
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -90,10 +91,9 @@ def handle_request(user_email, channel_name, action):
     if action == "approve":
         try:
             from app import socketio
-            from sockets.events import connected_users
             for sid, u in connected_users.items():
                 if u.get("email") == user_email:
-                    socketio.emit("access_granted", {"channel_name": channel_name}, to=sid)
+                    socketio.emit("access_granted", {"channel_name": channel_name}, room=sid)
                     break
         except Exception as e:
             print(f"Socket notify failed: {e}")

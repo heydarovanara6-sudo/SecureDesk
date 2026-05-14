@@ -8,5 +8,5 @@ python-dotenv==1.0.1
 certifi==2024.2.2
 eventlet==0.33.3
 werkzeug==3.0.3
-dnspython==2.6.1
+dnspython==2.3.0
 minio==7.2.7

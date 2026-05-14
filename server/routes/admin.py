@@ -100,7 +100,49 @@ def handle_request(user_email, channel_name, action):
 
     return jsonify({"message": f"Request {status}"}), 200
 
-# GET audit logs
+# GET approved channel access for a specific user
+@admin_bp.route("/admin/users/<user_email>/channels", methods=["GET"])
+@token_required
+@require_admin
+def get_user_channels(user_email):
+    approved = list(access_requests_collection.find(
+        {"user_email": user_email, "status": "approved"},
+        {"_id": 0, "channel_name": 1, "resolved_at": 1}
+    ))
+    return jsonify(approved), 200
+
+# Revoke a user's access to a channel
+@admin_bp.route("/admin/users/<user_email>/channels/<channel_name>/revoke", methods=["POST"])
+@token_required
+@require_admin
+def revoke_channel_access(user_email, channel_name):
+    result = access_requests_collection.update_one(
+        {"user_email": user_email, "channel_name": channel_name, "status": "approved"},
+        {"$set": {"status": "revoked", "resolved_at": datetime.utcnow().isoformat()}}
+    )
+    if result.matched_count == 0:
+        return jsonify({"error": "No approved access found"}), 404
+
+    audit_collection.insert_one({
+        "action": "Access revoked",
+        "target": f"{user_email} → #{channel_name}",
+        "by": request.user.get("email"),
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+    # Notify user in real-time if connected
+    try:
+        from app import socketio
+        for sid, u in connected_users.items():
+            if u.get("email") == user_email:
+                socketio.emit("access_revoked", {"channel_name": channel_name}, room=sid)
+                break
+    except Exception as e:
+        print(f"Socket notify failed: {e}")
+
+    return jsonify({"message": "Access revoked"}), 200
+
+
 @admin_bp.route("/admin/audit", methods=["GET"])
 @token_required
 @require_admin
